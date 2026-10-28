@@ -411,3 +411,38 @@ model Snapshot {
   @@index([objectType, action, createdAt(sort: Desc)])
   @@index([createdAt(sort: Desc)])
 }
+
+/* ---------------- 导入（M2） ---------------- */
+
+enum ImportKind {
+  stop
+  line
+}
+
+enum ImportStatus {
+  pending
+  confirmed
+  cancelled
+  expired
+}
+
+/// 导入任务：上传后先分析出预览，确认时在一个事务里重新分析并比对计划哈希后写入
+model ImportJob {
+  id        String       @id @default(uuid(7)) @db.Uuid
+  kind      ImportKind
+  status    ImportStatus @default(pending)
+  fileName  String
+  /// 原文件（确认时重新分析、下载失败行都要用）
+  file      Bytes
+  options   Json         @default("{}")
+  preview   Json
+  /// 失败行的原始单元格，用于下载失败行
+  failures  Json         @default("[]")
+  planHash  String
+  result    Json?
+  expiresAt DateTime
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([createdAt(sort: Desc)])
+}

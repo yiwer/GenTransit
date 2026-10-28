@@ -1,6 +1,14 @@
 // 站点列表（5.3.2）：列表 + 地图分栏。左栏窄时每行显示站名、方位章、经过线路；左栏不小于 760px 时切换为宽表。
 // 地图只画当前页站点；单击定位并浮出摘要卡片，双击或回车进入详情，悬停时地图上临时强调（F-COM-13）
-import { DIRECTIONS, STOP_DIFF_SPEC, type StopListItem, type StopListQuery } from '@gentransit/shared'
+import {
+  DIRECTIONS,
+  STOP_DIFF_SPEC,
+  type LineListItem,
+  type Page,
+  type StopListItem,
+  type StopListQuery,
+} from '@gentransit/shared'
+import { useQuery } from '@tanstack/react-query'
 import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import {
   ArrowUpRight,
@@ -22,18 +30,21 @@ import { EmptySearchArt } from '@/components/gt/lively'
 import { Pagination, usePageParams } from '@/components/gt/pagination'
 import { DictPicker, RegionPicker } from '@/components/gt/pickers'
 import { SplitView } from '@/components/gt/split-view'
-import { DirBadge } from '@/components/gt/symbols'
+import { DirBadge, RoutePlate } from '@/components/gt/symbols'
 import { Button, IconButton } from '@/components/ui/button'
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useExtFields, useSettings } from '@/features/common/data'
+import { ImportDrawer } from '@/features/import/ImportDrawer'
+import { get, withQuery } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MapView } from '@/map/MapView'
-import { ColumnPicker, stopColumns, useColumnPrefs, type ColMeta } from './columns'
+import { ColumnPicker, useColumnPrefs, type ColMeta } from '@/components/gt/columns'
+import { STOP_DEFAULT_COLUMNS, stopColumns } from './columns'
 import { Plates, regionText, useStopList } from './shared'
 
-const FILTER_KEYS = ['q', 'dir', 'districtId', 'streetId', 'roadId', 'maintainerId'] as const
+const FILTER_KEYS = ['q', 'dir', 'lineIds', 'districtId', 'streetId', 'roadId', 'maintainerId'] as const
 
 /** 筛选条件写入 URL（F-COM-02）；筛选变化时回到第 1 页（F-COM-12） */
 function useFilters() {
@@ -62,6 +73,94 @@ function useFilters() {
   return { f, tab, sort, set, clear, active }
 }
 
+/** "经过线路"筛选：线路牌多选，取并集 */
+function LineFilter({
+  value,
+  onChange,
+  chip,
+}: {
+  value: string[]
+  onChange: (ids: string[]) => void
+  chip: (on: boolean) => string
+}) {
+  const [q, setQ] = useState('')
+  const lines = useQuery({
+    queryKey: ['lines', 'list', { q: q.trim(), size: 100, picker: true }],
+    queryFn: () => get<Page<LineListItem>>('/api/lines', { q: q.trim(), size: 100 }),
+  })
+  const chosen = useQuery({
+    queryKey: ['lines', 'list', { ids: value }],
+    queryFn: () => get<Page<LineListItem>>('/api/lines', { size: 100 }),
+    enabled: value.length > 0,
+  })
+  const names = (chosen.data?.items ?? []).filter((l) => value.includes(l.id))
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" className={chip(value.length > 0)} aria-label="经过线路">
+          {value.length ? (
+            <span className="flex items-center gap-1">
+              经过
+              {names.slice(0, 3).map((l) => (
+                <RoutePlate key={l.id} name={l.name} size="xs" />
+              ))}
+              {value.length > 3 && `+${value.length - 3}`}
+            </span>
+          ) : (
+            '经过线路'
+          )}
+          <ChevronDown size={13} />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[300px] p-2">
+        <input
+          autoFocus
+          aria-label="搜索线路"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="搜索线路名"
+          className="mb-1.5 h-8 w-full rounded-lg bg-sunken px-2.5 text-[13.5px] focus:outline-none focus:ring-1 focus:ring-accent"
+        />
+        <ul className="flex max-h-[280px] flex-wrap gap-1.5 overflow-auto p-1">
+          {(lines.data?.items ?? []).map((l) => {
+            const on = value.includes(l.id)
+            return (
+              <li key={l.id}>
+                <button
+                  type="button"
+                  aria-pressed={on}
+                  title={l.routes[0] ? `${l.routes[0].origin} — ${l.routes[0].terminal}` : l.name}
+                  onClick={() => onChange(on ? value.filter((x) => x !== l.id) : [...value, l.id])}
+                  className={cn(
+                    'rounded-[5px] transition-transform',
+                    on
+                      ? 'scale-105 ring-2 ring-coral ring-offset-1 ring-offset-surface'
+                      : 'opacity-80 hover:opacity-100',
+                  )}
+                >
+                  <RoutePlate name={l.name} size="sm" state={l.status === 'suspended' ? 'suspended' : 'normal'} />
+                </button>
+              </li>
+            )
+          })}
+          {lines.isSuccess && !lines.data.items.length && (
+            <li className="w-full py-3 text-center text-[12.5px] text-ink-3">没有线路</li>
+          )}
+        </ul>
+        {value.length > 0 && (
+          <button
+            type="button"
+            className="mt-1 px-1 text-[12px] text-accent hover:underline"
+            onClick={() => onChange([])}
+          >
+            清除线路筛选
+          </button>
+        )}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 function FilterBar() {
   const { f, set, clear, active } = useFilters()
   const settings = useSettings()
@@ -88,6 +187,11 @@ function FilterBar() {
           </button>
         ))}
       <span className="mx-0.5 h-4 w-px bg-hairline-2" />
+      <LineFilter
+        value={f.lineIds ? f.lineIds.split(',') : []}
+        onChange={(ids) => set({ lineIds: ids.join(',') || null })}
+        chip={chip}
+      />
       <Popover>
         <PopoverTrigger asChild>
           <button type="button" className={chip(more > 0)}>
@@ -170,6 +274,7 @@ export function StopListPage() {
   const [q, setQ] = useState(f.q)
   useEffect(() => setQ((cur) => (cur.trim() === f.q ? cur : f.q)), [f.q])
   const list = useStopList({ ...f, sort, page, size })
+  const [importing, setImporting] = useState(false)
   const ext = useExtFields('stop')
   const [sel, setSel] = useState<string | null>(null)
   const [hover, setHover] = useState<string | null>(null)
@@ -179,7 +284,11 @@ export function StopListPage() {
   const open = (id: string) => nav(`/stops/${id}`)
 
   const columns = useMemo(() => stopColumns((ext.data ?? []).filter((x) => x.enabled)), [ext.data])
-  const prefs = useColumnPrefs(columns.map((c) => c.id!))
+  const prefs = useColumnPrefs(
+    'gt-stops-columns',
+    columns.map((c) => c.id!),
+    STOP_DEFAULT_COLUMNS,
+  )
   const table = useReactTable({
     data: items,
     columns,
@@ -223,222 +332,227 @@ export function StopListPage() {
   )
 
   return (
-    <SplitView
-      storageKey="stops"
-      defaultWidth={440}
-      map={map}
-      left={({ width }) => {
-        const wide = width >= 760
-        return (
-          <div className="flex h-full flex-col">
-            <div className="px-6 pb-3 pt-6">
-              <div className="flex items-end justify-between gap-3">
-                <div>
-                  <h1 className="font-display text-[26px] font-semibold leading-9">
-                    {tab === 'deleted' ? '已删除的站点' : '站点'}
-                  </h1>
-                  <p className="text-[13px] text-ink-3">
-                    {tab === 'deleted'
-                      ? '来自删除前最后一份快照，修改历史仍可查看'
-                      : list.isSuccess
-                        ? `${total} 个站点`
-                        : '正在读取…'}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1">
-                  <Menu>
-                    <MenuTrigger asChild>
-                      <IconButton label="更多操作">
-                        <MoreHorizontal size={17} />
-                      </IconButton>
-                    </MenuTrigger>
-                    <MenuContent>
-                      <MenuItem disabled hint="M2">
-                        <Upload size={14} /> 导入站点
-                      </MenuItem>
-                      <MenuItem disabled hint="M2">
-                        <Download size={14} /> 导出当前结果
-                      </MenuItem>
-                      <MenuSeparator />
-                      <MenuLabel>视图</MenuLabel>
-                      <MenuItem onSelect={() => set({ tab: tab === 'deleted' ? null : 'deleted' })}>
-                        <Trash2 size={14} /> {tab === 'deleted' ? '返回在用站点' : '已删除的站点'}
-                      </MenuItem>
-                    </MenuContent>
-                  </Menu>
-                  <Button variant="primary" onClick={() => nav('/stops/new')}>
-                    <Plus size={15} /> 新建
-                  </Button>
-                </div>
-              </div>
-              {tab === 'active' && (
-                <>
-                  <div className="relative mt-4">
-                    <Search
-                      size={15}
-                      className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-3"
-                    />
-                    <Input
-                      aria-label="搜索站点"
-                      placeholder="搜索站名、英文名、路段"
-                      value={q}
-                      onChange={(e) => {
-                        setQ(e.target.value)
-                        set({ q: e.target.value.trim() || null })
-                      }}
-                      className="h-10 rounded-xl pl-9 text-[14px]"
-                    />
+    <>
+      <SplitView
+        storageKey="stops"
+        defaultWidth={440}
+        map={map}
+        left={({ width }) => {
+          const wide = width >= 760
+          return (
+            <div className="flex h-full flex-col">
+              <div className="px-6 pb-3 pt-6">
+                <div className="flex items-end justify-between gap-3">
+                  <div>
+                    <h1 className="font-display text-[26px] font-semibold leading-9">
+                      {tab === 'deleted' ? '已删除的站点' : '站点'}
+                    </h1>
+                    <p className="text-[13px] text-ink-3">
+                      {tab === 'deleted'
+                        ? '来自删除前最后一份快照，修改历史仍可查看'
+                        : list.isSuccess
+                          ? `${total} 个站点`
+                          : '正在读取…'}
+                    </p>
                   </div>
-                  <div className="mt-3 flex items-center gap-2">
-                    <FilterBar />
-                    {wide && (
-                      <span className="ml-auto">
-                        <ColumnPicker columns={columns} prefs={prefs} />
-                      </span>
+                  <div className="flex items-center gap-1">
+                    <Menu>
+                      <MenuTrigger asChild>
+                        <IconButton label="更多操作">
+                          <MoreHorizontal size={17} />
+                        </IconButton>
+                      </MenuTrigger>
+                      <MenuContent>
+                        <MenuItem onSelect={() => setImporting(true)}>
+                          <Upload size={14} /> 导入站点
+                        </MenuItem>
+                        <MenuItem
+                          onSelect={() => window.location.assign(withQuery('/api/export/stops', { ...f, sort }))}
+                        >
+                          <Download size={14} /> 导出当前结果
+                        </MenuItem>
+                        <MenuSeparator />
+                        <MenuLabel>视图</MenuLabel>
+                        <MenuItem onSelect={() => set({ tab: tab === 'deleted' ? null : 'deleted' })}>
+                          <Trash2 size={14} /> {tab === 'deleted' ? '返回在用站点' : '已删除的站点'}
+                        </MenuItem>
+                      </MenuContent>
+                    </Menu>
+                    <Button variant="primary" onClick={() => nav('/stops/new')}>
+                      <Plus size={15} /> 新建
+                    </Button>
+                  </div>
+                </div>
+                {tab === 'active' && (
+                  <>
+                    <div className="relative mt-4">
+                      <Search
+                        size={15}
+                        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-3"
+                      />
+                      <Input
+                        aria-label="搜索站点"
+                        placeholder="搜索站名、英文名、路段"
+                        value={q}
+                        onChange={(e) => {
+                          setQ(e.target.value)
+                          set({ q: e.target.value.trim() || null })
+                        }}
+                        className="h-10 rounded-xl pl-9 text-[14px]"
+                      />
+                    </div>
+                    <div className="mt-3 flex items-center gap-2">
+                      <FilterBar />
+                      {wide && (
+                        <span className="ml-auto">
+                          <ColumnPicker columns={columns} prefs={prefs} />
+                        </span>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+
+              {tab === 'deleted' ? (
+                <DeletedList type="stop" spec={STOP_DIFF_SPEC} unit="站点" />
+              ) : (
+                <>
+                  {wide && (
+                    <div
+                      role="row"
+                      className="grid gap-4 border-y border-hairline bg-surface-2 px-6 py-2 text-[11.5px] font-semibold tracking-[0.06em] text-ink-3"
+                      style={{ gridTemplateColumns: grid }}
+                    >
+                      {visibleCols.map((c) => {
+                        const sortable = c.id === 'name' || c.id === 'updatedAt'
+                        const on = sort.replace('-', '') === c.id
+                        return (
+                          <span key={c.id} role="columnheader" className="truncate">
+                            {sortable ? (
+                              <button
+                                type="button"
+                                className={cn('inline-flex items-center gap-1 hover:text-ink', on && 'text-ink')}
+                                onClick={() =>
+                                  set({
+                                    sort:
+                                      c.id === 'name'
+                                        ? sort === 'name'
+                                          ? '-name'
+                                          : null
+                                        : sort === '-updatedAt'
+                                          ? 'updatedAt'
+                                          : '-updatedAt',
+                                  })
+                                }
+                              >
+                                {(c.columnDef.meta as ColMeta).label}
+                                {on && (sort.startsWith('-') ? '↓' : '↑')}
+                              </button>
+                            ) : (
+                              (c.columnDef.meta as ColMeta).label
+                            )}
+                          </span>
+                        )
+                      })}
+                      <span />
+                    </div>
+                  )}
+                  <ul
+                    className={cn('min-h-0 flex-1 overflow-auto', !wide && 'border-t border-hairline')}
+                    aria-label="站点列表"
+                    onMouseLeave={() => setHover(null)}
+                  >
+                    {table.getRowModel().rows.map((row) => {
+                      const s = row.original
+                      const active = sel === s.id
+                      return (
+                        <li key={s.id}>
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            aria-current={active}
+                            aria-label={`${s.name}（${s.direction}）`}
+                            onClick={() => setSel(s.id)}
+                            onDoubleClick={() => open(s.id)}
+                            onKeyDown={(e) => e.key === 'Enter' && open(s.id)}
+                            onMouseEnter={() => setHover(s.id)}
+                            className={cn(
+                              'group relative cursor-pointer border-b border-hairline px-6 py-3 transition-colors',
+                              active ? 'bg-accent-soft/60' : hover === s.id ? 'bg-surface-2' : '',
+                              wide && 'grid items-center gap-4 py-2.5 text-[13px]',
+                            )}
+                            style={wide ? { gridTemplateColumns: grid } : undefined}
+                          >
+                            {active && <span className="absolute inset-y-2 left-0 w-[3px] rounded-r-full bg-accent" />}
+                            {wide ? (
+                              <>
+                                {row.getVisibleCells().map((cell) => (
+                                  <div key={cell.id} className="flex min-w-0 items-center">
+                                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                                  </div>
+                                ))}
+                                <OpenButton s={s} onOpen={() => open(s.id)} />
+                              </>
+                            ) : (
+                              <>
+                                <div className="flex items-center gap-2">
+                                  <span className="truncate font-display text-[16px] font-semibold">{s.name}</span>
+                                  <DirBadge dir={s.direction} size="sm" />
+                                  <span className="ml-auto">
+                                    <OpenButton s={s} onOpen={() => open(s.id)} />
+                                  </span>
+                                </div>
+                                <div className="mt-0.5 truncate text-[12.5px] text-ink-3">
+                                  {[s.road?.name, s.street?.name ?? s.district?.name].filter(Boolean).join(' · ') ||
+                                    '未填写位置信息'}
+                                </div>
+                                <div className="mt-2">
+                                  <Plates lines={s.lines} max={7} />
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        </li>
+                      )
+                    })}
+                    {list.isSuccess && items.length === 0 && (
+                      <li className="flex flex-col items-center px-8 py-14 text-center">
+                        <EmptySearchArt />
+                        <p className="mt-2 font-display text-[16px] font-semibold">
+                          {total === 0 && !Object.values(f).some(Boolean) ? '还没有站点' : '没有找到符合条件的站点'}
+                        </p>
+                        <p className="mt-1 text-[13px] text-ink-3">
+                          {Object.values(f).some(Boolean)
+                            ? '换个关键字，或者清空筛选再试。'
+                            : '点右上角「新建」，在地图上点选位置即可。'}
+                        </p>
+                        {Object.values(f).some(Boolean) && (
+                          <Button className="mt-4" onClick={clear}>
+                            清空筛选
+                          </Button>
+                        )}
+                      </li>
                     )}
+                  </ul>
+                  <div className="shrink-0 border-t border-hairline bg-surface-2 px-6 py-2.5">
+                    <Pagination
+                      page={page}
+                      size={size}
+                      total={total}
+                      onPage={setPage}
+                      onSize={setSize}
+                      unit="个"
+                      compact={width < 440}
+                    />
                   </div>
                 </>
               )}
             </div>
-
-            {tab === 'deleted' ? (
-              <DeletedList type="stop" spec={STOP_DIFF_SPEC} unit="站点" />
-            ) : (
-              <>
-                {wide && (
-                  <div
-                    role="row"
-                    className="grid gap-4 border-y border-hairline bg-surface-2 px-6 py-2 text-[11.5px] font-semibold tracking-[0.06em] text-ink-3"
-                    style={{ gridTemplateColumns: grid }}
-                  >
-                    {visibleCols.map((c) => {
-                      const sortable = c.id === 'name' || c.id === 'updatedAt'
-                      const on = sort.replace('-', '') === c.id
-                      return (
-                        <span key={c.id} role="columnheader" className="truncate">
-                          {sortable ? (
-                            <button
-                              type="button"
-                              className={cn('inline-flex items-center gap-1 hover:text-ink', on && 'text-ink')}
-                              onClick={() =>
-                                set({
-                                  sort:
-                                    c.id === 'name'
-                                      ? sort === 'name'
-                                        ? '-name'
-                                        : null
-                                      : sort === '-updatedAt'
-                                        ? 'updatedAt'
-                                        : '-updatedAt',
-                                })
-                              }
-                            >
-                              {(c.columnDef.meta as ColMeta).label}
-                              {on && (sort.startsWith('-') ? '↓' : '↑')}
-                            </button>
-                          ) : (
-                            (c.columnDef.meta as ColMeta).label
-                          )}
-                        </span>
-                      )
-                    })}
-                    <span />
-                  </div>
-                )}
-                <ul
-                  className={cn('min-h-0 flex-1 overflow-auto', !wide && 'border-t border-hairline')}
-                  aria-label="站点列表"
-                  onMouseLeave={() => setHover(null)}
-                >
-                  {table.getRowModel().rows.map((row) => {
-                    const s = row.original
-                    const active = sel === s.id
-                    return (
-                      <li key={s.id}>
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          aria-current={active}
-                          aria-label={`${s.name}（${s.direction}）`}
-                          onClick={() => setSel(s.id)}
-                          onDoubleClick={() => open(s.id)}
-                          onKeyDown={(e) => e.key === 'Enter' && open(s.id)}
-                          onMouseEnter={() => setHover(s.id)}
-                          className={cn(
-                            'group relative cursor-pointer border-b border-hairline px-6 py-3 transition-colors',
-                            active ? 'bg-accent-soft/60' : hover === s.id ? 'bg-surface-2' : '',
-                            wide && 'grid items-center gap-4 py-2.5 text-[13px]',
-                          )}
-                          style={wide ? { gridTemplateColumns: grid } : undefined}
-                        >
-                          {active && <span className="absolute inset-y-2 left-0 w-[3px] rounded-r-full bg-accent" />}
-                          {wide ? (
-                            <>
-                              {row.getVisibleCells().map((cell) => (
-                                <div key={cell.id} className="flex min-w-0 items-center">
-                                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                                </div>
-                              ))}
-                              <OpenButton s={s} onOpen={() => open(s.id)} />
-                            </>
-                          ) : (
-                            <>
-                              <div className="flex items-center gap-2">
-                                <span className="truncate font-display text-[16px] font-semibold">{s.name}</span>
-                                <DirBadge dir={s.direction} size="sm" />
-                                <span className="ml-auto">
-                                  <OpenButton s={s} onOpen={() => open(s.id)} />
-                                </span>
-                              </div>
-                              <div className="mt-0.5 truncate text-[12.5px] text-ink-3">
-                                {[s.road?.name, s.street?.name ?? s.district?.name].filter(Boolean).join(' · ') ||
-                                  '未填写位置信息'}
-                              </div>
-                              <div className="mt-2">
-                                <Plates lines={s.lines} max={7} />
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </li>
-                    )
-                  })}
-                  {list.isSuccess && items.length === 0 && (
-                    <li className="flex flex-col items-center px-8 py-14 text-center">
-                      <EmptySearchArt />
-                      <p className="mt-2 font-display text-[16px] font-semibold">
-                        {total === 0 && !Object.values(f).some(Boolean) ? '还没有站点' : '没有找到符合条件的站点'}
-                      </p>
-                      <p className="mt-1 text-[13px] text-ink-3">
-                        {Object.values(f).some(Boolean)
-                          ? '换个关键字，或者清空筛选再试。'
-                          : '点右上角「新建」，在地图上点选位置即可。'}
-                      </p>
-                      {Object.values(f).some(Boolean) && (
-                        <Button className="mt-4" onClick={clear}>
-                          清空筛选
-                        </Button>
-                      )}
-                    </li>
-                  )}
-                </ul>
-                <div className="shrink-0 border-t border-hairline bg-surface-2 px-6 py-2.5">
-                  <Pagination
-                    page={page}
-                    size={size}
-                    total={total}
-                    onPage={setPage}
-                    onSize={setSize}
-                    unit="个"
-                    compact={width < 440}
-                  />
-                </div>
-              </>
-            )}
-          </div>
-        )
-      }}
-    />
+          )
+        }}
+      />
+      <ImportDrawer kind="stop" open={importing} onOpenChange={setImporting} />
+    </>
   )
 }
 

@@ -3,7 +3,16 @@
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import { PrismaPg } from '@prisma/adapter-pg'
-import { STOP_NORMALIZE, compareText, signSetSnapshot, stopLabel, stopSnapshot, type Ref } from '@gentransit/shared'
+import {
+  LINE_NORMALIZE,
+  STOP_NORMALIZE,
+  compareText,
+  lineSnapshot,
+  signSetSnapshot,
+  stopLabel,
+  stopSnapshot,
+  type Ref,
+} from '@gentransit/shared'
 import { PrismaClient, type DictCategory, type Prisma, type RouteKind } from '../src/generated/prisma/client'
 
 try {
@@ -13,9 +22,9 @@ try {
 }
 
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) })
-const hash = (type: 'stop' | 'signSet', content: unknown) =>
+const hash = (type: 'stop' | 'signSet' | 'line', content: unknown) =>
   createHash('sha256')
-    .update(compareText(content, type === 'stop' ? STOP_NORMALIZE : {}))
+    .update(compareText(content, type === 'stop' ? STOP_NORMALIZE : type === 'line' ? LINE_NORMALIZE : {}))
     .digest('hex')
 
 // 原型的示意坐标 → 经纬度（GCJ-02）
@@ -389,12 +398,15 @@ async function main() {
       })
   }
 
-  const companies: Record<string, string> = {}
+  const companies: Record<string, Ref> = {}
   for (const [name, shortName, nameEn] of [
     ['示例公交一公司', '一公司', 'Example Bus Co. No.1'],
     ['示例公交二公司', '二公司', 'Example Bus Co. No.2'],
   ])
-    companies[name] = (await prisma.busCompany.create({ data: { name, shortName, nameEn, hotline: '96000' } })).id
+    companies[name] = await prisma.busCompany.create({
+      data: { name, shortName, nameEn, hotline: '96000' },
+      select: { id: true, name: true },
+    })
 
   const cats: Record<string, string> = {}
   for (const [name, icon, radius] of CATEGORIES)
@@ -515,26 +527,65 @@ async function main() {
     })
   }
 
+  const stopOf = Object.fromEntries(
+    STOPS.map(([code, name, direction]) => [code, { id: stopIds[code], name, direction }]),
+  )
   for (const l of LINES) {
-    await prisma.line.create({
+    const fareSystem = d('fareSystem', l.name.startsWith('K') ? '分段计价' : '一票制')
+    const fare = l.name.startsWith('K') ? '2–4 元' : '2 元'
+    const routes = l.routes.map((rt) => ({
+      kind: rt.kind,
+      serviceType: 'interval' as const,
+      serviceTime: l.name.startsWith('夜') ? '22:30–次日 05:30' : '05:50–22:30',
+      interval: '10–15 分钟',
+    }))
+    const line = await prisma.line.create({
       data: {
         name: l.name,
         number: l.number,
         mode: l.mode,
         status: l.status ?? 'running',
-        companyId: companies[l.company],
+        companyId: companies[l.company].id,
         ticketType: 'unattended',
-        fareSystemId: d('fareSystem', l.name.startsWith('K') ? '分段计价' : '一票制')?.id,
-        fare: l.name.startsWith('K') ? '2–4 元' : '2 元',
+        fareSystemId: fareSystem?.id,
+        fare,
         routes: {
-          create: l.routes.map((rt) => ({
-            kind: rt.kind,
-            serviceType: 'interval',
-            serviceTime: l.name.startsWith('夜') ? '22:30–次日 05:30' : '05:50–22:30',
-            interval: '10–15 分钟',
+          create: l.routes.map((rt, i) => ({
+            ...routes[i],
             stops: { create: rt.codes.map((c, seq) => ({ stopId: stopIds[c], seq: seq + 1 })) },
           })),
         },
+      },
+    })
+    // M2：种子线路也有一份新增快照
+    const content = lineSnapshot(
+      {
+        name: l.name,
+        number: l.number,
+        nameEn: '',
+        mode: l.mode,
+        status: l.status ?? 'running',
+        ticketType: 'unattended',
+        fare,
+        company: companies[l.company],
+        fareSystem,
+        ext: {},
+        routes: l.routes.map((rt, i) => ({
+          ...routes[i],
+          stops: rt.codes.map((c) => ({ stop: stopOf[c], times: [], ext: {} })),
+        })),
+      },
+      [],
+      [],
+    )
+    await prisma.snapshot.create({
+      data: {
+        objectType: 'line',
+        objectId: line.id,
+        objectName: l.name,
+        action: 'create',
+        content: content as unknown as Prisma.InputJsonValue,
+        compareHash: hash('line', content),
       },
     })
   }

@@ -1,6 +1,15 @@
 // 修改快照：内容结构、规范化（用于比较哈希）与字段级差异
-import type { ExtType } from './enums'
-import { formatExtValue } from './domain'
+import { LINE_MODE_LABEL, ROUTE_KIND_LABEL, ROUTE_KINDS, type ExtType, type LineMode, type RouteKind } from './enums'
+import { formatExtValue, stopLabel } from './domain'
+import {
+  LINE_STATUS_LABEL,
+  SERVICE_TYPE_LABEL,
+  TICKET_TYPE_LABEL,
+  passIndices,
+  type LineStatus,
+  type ServiceType,
+  type TicketType,
+} from './line'
 import type { Ref, StopDetail } from './types'
 
 export const SNAPSHOT_SCHEMA = 1
@@ -186,9 +195,11 @@ export const compareText = (content: unknown, opts?: NormalizeOptions) => canoni
 /* ---------- 差异 ---------- */
 
 export type DiffField =
-  | { path: string; label: string; kind?: 'value' }
+  /** format：把代码值显示成中文（如模式、状态） */
+  | { path: string; label: string; kind?: 'value'; format?: (v: unknown) => string }
   | { path: string; label: string; kind: 'set' }
-  | { path: string; label: string; kind: 'list' }
+  /** labelPath：列表项的显示名取自哪个字段（如路径站的 stop.name） */
+  | { path: string; label: string; kind: 'list'; labelPath?: string }
   | { path: string; label: string; kind: 'ext' }
 
 export type DiffItemOp = 'added' | 'removed' | 'moved' | 'changed'
@@ -202,9 +213,13 @@ const get = (obj: unknown, path: string): unknown =>
 
 /** 取值的展示文本 */
 export function display(v: unknown): string {
+  return displayValue(v)
+}
+
+function displayValue(v: unknown): string {
   if (v === null || v === undefined) return ''
   if (typeof v === 'boolean') return v ? '是' : '否'
-  if (Array.isArray(v)) return v.map(display).filter(Boolean).join('、')
+  if (Array.isArray(v)) return v.map(displayValue).filter(Boolean).join('、')
   if (isPlain(v)) {
     if (typeof v.name === 'string') return v.name
     return JSON.stringify(v)
@@ -239,8 +254,9 @@ function lisIndices(seq: number[]): Set<number> {
   return keep
 }
 
-/** 有序列表的差异：按 id 对齐，输出增、删、移动、修改 */
-export function diffList(prev: unknown[], next: unknown[]): { op: DiffItemOp; label: string }[] {
+/** 有序列表的差异：按 id 对齐，输出增、删、移动、修改；labelPath 指定显示名所在字段 */
+export function diffList(prev: unknown[], next: unknown[], labelPath?: string): { op: DiffItemOp; label: string }[] {
+  const display = (x: unknown) => displayValue(labelPath ? get(x, labelPath) : x)
   const out: { op: DiffItemOp; label: string }[] = []
   const prevIds = prev.map(idOf)
   const nextIds = next.map(idOf)
@@ -280,7 +296,7 @@ export function diffSnapshots(prev: unknown, next: unknown, spec: DiffField[]): 
                 .filter((x) => !pa.some((y) => idOf(y) === idOf(x)))
                 .map((x) => ({ op: 'added' as const, label: display(x) })),
             ]
-          : diffList(pa, pb)
+          : diffList(pa, pb, f.labelPath)
       if (items.length) out.push({ kind: 'items', label: f.label, items })
     } else if (f.kind === 'ext') {
       const ea = isPlain(a) ? (a as Record<string, ExtSnapshotValue>) : {}
@@ -297,7 +313,8 @@ export function diffSnapshots(prev: unknown, next: unknown, spec: DiffField[]): 
           })
       }
     } else if (!same(a, b)) {
-      out.push({ kind: 'value', label: f.label, from: display(a), to: display(b) })
+      const fmt = f.format ?? display
+      out.push({ kind: 'value', label: f.label, from: a == null ? '' : fmt(a), to: b == null ? '' : fmt(b) })
     }
   }
   return out
@@ -338,3 +355,126 @@ export const SIGN_SET_DIFF_SPEC: DiffField[] = [
 /** 改动了哪些字段（标签列表），用于"未保存：改了哪些字段"和快照说明 */
 export const changedLabels = (prev: unknown, next: unknown, spec: DiffField[]) =>
   diffSnapshots(prev, next, spec).map((d) => d.label)
+
+/* ---------- 线路快照（M2 计划 3.2） ---------- */
+
+export interface RouteStopSnapshot {
+  /** 站点 ID + 第几次途经：重建路径站不产生假差异 */
+  id: string
+  /** 名称写"站名（方位）"；规范化后只留 ID，站点改名不改变哈希 */
+  stop: Ref
+  times: string[]
+  ext: Record<string, ExtSnapshotValue>
+}
+
+export interface RouteSnapshot {
+  serviceType: ServiceType | null
+  serviceTime: string
+  interval: string
+  stops: RouteStopSnapshot[]
+}
+
+export interface LineSnapshotV1 {
+  schema: 1
+  name: string
+  number: string
+  nameEn: string
+  mode: LineMode
+  status: LineStatus
+  ticketType: TicketType | null
+  fare: string
+  company: Ref | null
+  fareSystem: Ref | null
+  ext: Record<string, ExtSnapshotValue>
+  routes: Partial<Record<RouteKind, RouteSnapshot>>
+}
+
+export interface LineSnapshotSource {
+  name: string
+  number: string
+  nameEn: string
+  mode: LineMode
+  status: LineStatus
+  ticketType: TicketType | null
+  fare: string
+  company: Ref | null
+  fareSystem: Ref | null
+  ext: Record<string, unknown>
+  routes: {
+    kind: RouteKind
+    serviceType: ServiceType | null
+    serviceTime: string
+    interval: string
+    stops: { stop: { id: string; name: string; direction: string }; times: string[]; ext: Record<string, unknown> }[]
+  }[]
+}
+
+type ExtDefLite = { key: string; name: string; type: ExtType }
+
+const extSnapshot = (values: Record<string, unknown>, defs: ExtDefLite[]) => {
+  const out: Record<string, ExtSnapshotValue> = {}
+  for (const d of defs) {
+    const v = values[d.key]
+    if (v !== null && v !== undefined && v !== '') out[d.key] = { name: d.name, type: d.type, value: v }
+  }
+  return out
+}
+
+/** 由线路详情构造快照内容：走向按走向名作键，路径站 ID = 站点 ID + 第几次途经 */
+export function lineSnapshot(s: LineSnapshotSource, lineExt: ExtDefLite[], routeStopExt: ExtDefLite[]): LineSnapshotV1 {
+  const routes: Partial<Record<RouteKind, RouteSnapshot>> = {}
+  for (const r of s.routes) {
+    const pass = passIndices(r.stops.map((x) => x.stop.id))
+    routes[r.kind] = {
+      serviceType: r.serviceType,
+      serviceTime: r.serviceTime,
+      interval: r.interval,
+      stops: r.stops.map((x, i) => ({
+        id: `${x.stop.id}#${pass[i]}`,
+        stop: { id: x.stop.id, name: stopLabel(x.stop) },
+        times: [...x.times],
+        ext: extSnapshot(x.ext, routeStopExt),
+      })),
+    }
+  }
+  return {
+    schema: 1,
+    name: s.name,
+    number: s.number,
+    nameEn: s.nameEn,
+    mode: s.mode,
+    status: s.status,
+    ticketType: s.ticketType,
+    fare: s.fare,
+    company: ref(s.company),
+    fareSystem: ref(s.fareSystem),
+    ext: extSnapshot(s.ext, lineExt),
+    routes,
+  }
+}
+
+export const LINE_NORMALIZE: NormalizeOptions = {}
+
+const label =
+  <T extends string>(map: Record<T, string>) =>
+  (v: unknown) =>
+    map[v as T] ?? String(v)
+
+export const LINE_DIFF_SPEC: DiffField[] = [
+  { path: 'name', label: '线路名' },
+  { path: 'number', label: '管理编号' },
+  { path: 'nameEn', label: '英文名' },
+  { path: 'mode', label: '线路模式', format: label(LINE_MODE_LABEL) },
+  { path: 'status', label: '状态', format: label(LINE_STATUS_LABEL) },
+  { path: 'company', label: '公交公司' },
+  { path: 'ticketType', label: '售票类型', format: label(TICKET_TYPE_LABEL) },
+  { path: 'fareSystem', label: '票制' },
+  { path: 'fare', label: '票价' },
+  { path: 'ext', label: '扩展字段', kind: 'ext' },
+  ...ROUTE_KINDS.flatMap((k): DiffField[] => [
+    { path: `routes.${k}.serviceType`, label: `${ROUTE_KIND_LABEL[k]} · 服务类型`, format: label(SERVICE_TYPE_LABEL) },
+    { path: `routes.${k}.serviceTime`, label: `${ROUTE_KIND_LABEL[k]} · 服务时间` },
+    { path: `routes.${k}.interval`, label: `${ROUTE_KIND_LABEL[k]} · 发车间隔` },
+    { path: `routes.${k}.stops`, label: `${ROUTE_KIND_LABEL[k]} · 站序`, kind: 'list', labelPath: 'stop.name' },
+  ]),
+]

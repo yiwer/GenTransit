@@ -59,6 +59,8 @@ function Detail({ stop }: { stop: StopDetail }) {
   const ext = useExtFields('stop')
   const landmarks = useLandmarks()
   const [delCheck, setDelCheck] = useState<DeleteCheck | null>(null)
+  // 悬停经过线路时，地图上强调该走向并显示行驶方向
+  const [hoverRoute, setHoverRoute] = useState<string | null>(null)
   const label = stopLabel(stop)
   const extIn = (section: StopSection) => (ext.data ?? []).filter((f) => f.enabled && f.section === section)
   const bound = (landmarks.data ?? []).filter((l) => stop.landmarks.some((b) => b.id === l.id))
@@ -132,20 +134,41 @@ function Detail({ stop }: { stop: StopDetail }) {
         </header>
 
         <section className="mb-8">
-          <SectionTitle count={stop.routes.length}>经过线路</SectionTitle>
+          <SectionTitle
+            count={stop.routes.length}
+            extra={
+              stop.routes.length > 0 && (
+                <Button size="sm" variant="ghost" onClick={() => nav(`/lines?stopId=${stop.id}`)}>
+                  在线路列表查看 <ArrowUpRight size={13} />
+                </Button>
+              )
+            }
+          >
+            经过线路
+          </SectionTitle>
           <ul className="overflow-hidden rounded-2xl ring-1 ring-hairline">
             {stop.routes.map((r) => (
-              <li
-                key={r.routeId}
-                className="flex items-center gap-3 border-b border-hairline px-4 py-2.5 last:border-0"
-              >
-                <RoutePlate name={r.lineName} state={r.suspended ? 'suspended' : 'normal'} />
-                <span className="w-14 text-[12.5px] text-ink-2">{kindLabel(r.routeKind)}</span>
-                <span className="min-w-0 flex-1 truncate text-[13.5px]">
-                  <span className="text-ink-3">开往 </span>
-                  <span className="font-display font-semibold">{r.terminal}</span>
-                </span>
-                {r.suspended && <Tag>停运</Tag>}
+              <li key={r.routeId}>
+                <Link
+                  to={`/lines/${r.lineId}`}
+                  onMouseEnter={() => setHoverRoute(r.routeId)}
+                  onMouseLeave={() => setHoverRoute(null)}
+                  onFocus={() => setHoverRoute(r.routeId)}
+                  onBlur={() => setHoverRoute(null)}
+                  className="group flex items-center gap-3 border-b border-hairline px-4 py-2.5 transition-colors hover:bg-surface-2"
+                >
+                  <RoutePlate name={r.lineName} state={r.suspended ? 'suspended' : 'normal'} />
+                  <span className="w-14 text-[12.5px] text-ink-2">{kindLabel(r.routeKind)}</span>
+                  <span className="min-w-0 flex-1 truncate text-[13.5px]">
+                    <span className="text-ink-3">开往 </span>
+                    <span className="font-display font-semibold">{r.terminal}</span>
+                  </span>
+                  {r.suspended && <Tag>停运</Tag>}
+                  <ArrowUpRight
+                    size={15}
+                    className="text-ink-4 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5 group-hover:text-ink"
+                  />
+                </Link>
               </li>
             ))}
             {stop.routes.length === 0 && (
@@ -329,6 +352,12 @@ function Detail({ stop }: { stop: StopDetail }) {
           circles={bound.flatMap((l) =>
             l.points.map((p) => ({ id: p.id, lng: p.lng, lat: p.lat, radius: p.radius, label: l.name })),
           )}
+          routes={stop.routes.map((r) => ({
+            id: r.routeId,
+            points: r.path,
+            tone: hoverRoute === r.routeId ? 'strong' : hoverRoute ? 'faint' : 'normal',
+            flow: hoverRoute === r.routeId && !r.suspended,
+          }))}
           fit={{ key: stop.id, points: [[stop.lng, stop.lat]] }}
         />
       }

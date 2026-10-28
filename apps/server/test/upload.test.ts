@@ -36,7 +36,7 @@ describe('上传（T7）', () => {
     const big = Buffer.concat([PNG, Buffer.alloc(10 * 1024 * 1024 + 1)])
     const res = await api.post('/api/uploads').attach('file', big, { filename: 'big.png', contentType: 'image/png' })
     expect(res.status).toBe(413)
-    expect(res.body.code).toBe('UPLOAD_REJECTED')
+    expect(res.body).toMatchObject({ code: 'UPLOAD_REJECTED', message: '文件不能超过 10 MB' })
   })
 
   it('不是 jpg / png / webp 被拒；扩展名伪装也被拒', async () => {

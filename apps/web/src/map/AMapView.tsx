@@ -30,7 +30,7 @@ function loadAMap(key: string): Promise<any> {
 }
 
 export function AMapView(props: MapProps & { amapKey: string }) {
-  const { amapKey, points = [], circles = [], marker, onPick, fit, className, overlay } = props
+  const { amapKey, points = [], circles = [], routes = [], marker, onPick, fit, className, overlay } = props
   const holder = useRef<HTMLDivElement>(null)
   const wrap = useRef<HTMLDivElement>(null)
   const mapRef = useRef<any>(null)
@@ -188,6 +188,7 @@ export function AMapView(props: MapProps & { amapKey: string }) {
           pxPerMeter={pxPerMeter}
           points={points}
           circles={circles}
+          routes={routes}
           selectedId={props.selectedId}
           hoverId={props.hoverId ?? hoverLocal}
           emphasizeIds={props.emphasizeIds}

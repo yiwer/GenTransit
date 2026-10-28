@@ -2,6 +2,9 @@ import { createBrowserRouter, Navigate } from 'react-router'
 import { LoginPage } from '@/features/auth/LoginPage'
 import { BaseDataPage } from '@/features/base-data/BaseDataPage'
 import { LandmarksPage } from '@/features/landmarks/LandmarksPage'
+import { LineDetailPage } from '@/features/lines/LineDetailPage'
+import { LineFormPage } from '@/features/lines/LineFormPage'
+import { LineListPage } from '@/features/lines/LineListPage'
 import { SettingsPage } from '@/features/settings/SettingsPage'
 import { StopDetailPage } from '@/features/stops/StopDetailPage'
 import { StopFormPage } from '@/features/stops/StopFormPage'
@@ -23,7 +26,10 @@ export const router = createBrowserRouter([
           { path: '/stops/new', element: <StopFormPage /> },
           { path: '/stops/:id', element: <StopDetailPage /> },
           { path: '/stops/:id/edit', element: <StopFormPage /> },
-          { path: '/lines', element: <Placeholder title="线路" milestone="M2" /> },
+          { path: '/lines', element: <LineListPage /> },
+          { path: '/lines/new', element: <LineFormPage /> },
+          { path: '/lines/:id', element: <LineDetailPage /> },
+          { path: '/lines/:id/edit', element: <LineFormPage /> },
           { path: '/sign-sets', element: <Placeholder title="站牌集" milestone="M3" /> },
           { path: '/landmarks', element: <LandmarksPage /> },
           { path: '/base-data/:tab?', element: <BaseDataPage /> },

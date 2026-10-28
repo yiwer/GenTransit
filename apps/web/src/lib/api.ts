@@ -74,3 +74,17 @@ export async function uploadFile(file: File): Promise<Upload> {
   })
   return parse<Upload>(res, '/api/uploads')
 }
+
+/** 导入：上传文件生成预览（multipart） */
+export async function uploadImport<T>(kind: string, file: File, fields: Record<string, string> = {}): Promise<T> {
+  const fd = new FormData()
+  fd.append('file', file)
+  for (const [k, v] of Object.entries(fields)) fd.append(k, v)
+  const res = await fetch(`/api/import/${kind}`, {
+    method: 'POST',
+    headers: { [CSRF_HEADER]: '1' },
+    credentials: 'same-origin',
+    body: fd,
+  })
+  return parse<T>(res, `/api/import/${kind}`)
+}

@@ -7,5 +7,6 @@ import { StopService } from './stop.service'
   imports: [UploadModule],
   controllers: [StopController],
   providers: [StopService],
+  exports: [StopService],
 })
 export class StopModule {}

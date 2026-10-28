@@ -220,12 +220,12 @@ describe('站点（T10）', () => {
       '人民广场东',
       '人民广场西',
     ])
-    expect(all.items[3].lines).toEqual([{ name: '1路', suspended: true }])
+    expect(all.items[3].lines).toEqual([{ id: line.id, name: '1路', suspended: true }])
     const q = (await api.get(`/api/stops?q=${encodeURIComponent('north')}`)).body
     expect(q.items.map((x: { name: string }) => x.name)).toEqual(['北门'])
     const byRoad = (await api.get(`/api/stops?roadId=${road.id}&dir=${encodeURIComponent('西')}`)).body
     expect(byRoad.items.map((x: { direction: string }) => x.direction)).toEqual(['西'])
-    const byLine = (await api.get(`/api/stops?line=${encodeURIComponent('1路')}`)).body
+    const byLine = (await api.get(`/api/stops?lineIds=${line.id}`)).body
     expect(byLine.total).toBe(1)
     const page2 = (await api.get('/api/stops?page=2&size=3')).body
     expect(page2).toMatchObject({ total: 4, page: 2, size: 3 })

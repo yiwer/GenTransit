@@ -62,7 +62,7 @@ export function AppShell() {
           className="mt-5 flex h-9 items-center gap-2 whitespace-nowrap rounded-xl bg-surface px-2.5 text-[13px] text-ink-3 shadow-xs ring-1 ring-hairline hover:text-ink"
         >
           <Search size={15} />
-          搜索站点
+          搜索
           <span className="ml-auto whitespace-nowrap">
             <Kbd>Ctrl K</Kbd>
           </span>

@@ -9,6 +9,16 @@ export interface MapPoint {
   label: string
   /** 标签后的灰字，如方位 */
   sub?: string
+  /** 圆点里的序号（站序） */
+  badge?: string
+}
+
+/** 线路走向折线：按站序连线；强调、普通、淡显三档；flow 表示行驶方向的流动短划 */
+export interface MapRoute {
+  id: string
+  points: LngLat[]
+  tone: 'strong' | 'normal' | 'faint'
+  flow?: boolean
 }
 
 export interface MapCircle {
@@ -36,6 +46,7 @@ export interface MapProps {
   /** 点击地图或拖动标记 */
   onPick?: (lng: number, lat: number) => void
   circles?: MapCircle[]
+  routes?: MapRoute[]
   /** key 变化时调整视野：一个点放大到街道级，多个点适配范围 */
   fit?: { key: string; points: LngLat[] } | null
   className?: string

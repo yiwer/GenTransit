@@ -101,6 +101,10 @@ export const ERROR_CODES = {
   extTypeLocked: 'EXT_TYPE_LOCKED',
   uploadRejected: 'UPLOAD_REJECTED',
   amapUnavailable: 'AMAP_UNAVAILABLE',
+  /** 导入：确认时重新分析的结果与预览不一致 */
+  importStale: 'IMPORT_STALE',
+  /** 导入：任务已过期、已确认或已取消 */
+  importClosed: 'IMPORT_CLOSED',
   internal: 'INTERNAL_ERROR',
 } as const
 export type ErrorCode = (typeof ERROR_CODES)[keyof typeof ERROR_CODES]

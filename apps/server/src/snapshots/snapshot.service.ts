@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { Injectable } from '@nestjs/common'
 import {
+  LINE_NORMALIZE,
   STOP_NORMALIZE,
   compareText,
   type DeletedItem,
@@ -15,7 +16,7 @@ import { PrismaService, type Tx } from '../prisma/prisma.service'
 
 const NORMALIZE: Record<ObjectType, NormalizeOptions> = {
   stop: STOP_NORMALIZE,
-  line: {},
+  line: LINE_NORMALIZE,
   signSet: {},
 }
 

@@ -1,9 +1,84 @@
-// 自绘 SVG 覆盖层：站点、选中涟漪、地标辐射圈、定位标记。高德底图与示意平面共用
+// 自绘 SVG 覆盖层：线路走向、站点、选中涟漪、地标辐射圈、定位标记。高德底图与示意平面共用
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { cn } from '@/lib/utils'
-import type { MapCircle, MapPoint } from './types'
+import type { MapCircle, MapPoint, MapRoute } from './types'
 
 type Px = [number, number]
+
+const TONE_ORDER = { faint: 0, normal: 1, strong: 2 }
+const ptsAttr = (pts: Px[]) => pts.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')
+
+/** 每段中点画一个指向行驶方向的小箭头（段太短的不画） */
+function chevrons(pts: Px[]) {
+  const out: { x: number; y: number; a: number }[] = []
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [x1, y1] = pts[i]
+    const [x2, y2] = pts[i + 1]
+    if (Math.hypot(x2 - x1, y2 - y1) < 46) continue
+    out.push({ x: (x1 + x2) / 2, y: (y1 + y2) / 2, a: (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI })
+  }
+  return out
+}
+
+function Routes({ routes, toPx }: { routes: MapRoute[]; toPx: OverlayProps['toPx'] }) {
+  return [...routes]
+    .sort((a, b) => TONE_ORDER[a.tone] - TONE_ORDER[b.tone])
+    .map((rt) => {
+      const pts = rt.points.map(([lng, lat]) => toPx(lng, lat))
+      if (pts.length < 2) return null
+      const strong = rt.tone === 'strong'
+      return (
+        <g key={rt.id} data-testid={`map-route-${rt.id}`} data-tone={rt.tone}>
+          {strong && (
+            <polyline
+              points={ptsAttr(pts)}
+              fill="none"
+              stroke="var(--surface)"
+              strokeWidth={9}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          )}
+          <polyline
+            points={ptsAttr(pts)}
+            fill="none"
+            stroke="var(--plate)"
+            strokeOpacity={strong ? 1 : rt.tone === 'normal' ? 0.6 : 0.28}
+            strokeWidth={strong ? 4.5 : rt.tone === 'normal' ? 3 : 2}
+            strokeDasharray={rt.tone === 'faint' ? '1 5' : undefined}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ transition: 'stroke-opacity 0.4s var(--spring)' }}
+          />
+          {rt.flow && (
+            <polyline
+              points={ptsAttr(pts)}
+              fill="none"
+              stroke="var(--coral)"
+              strokeWidth={4.5}
+              strokeDasharray="8 52"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="gt-flow"
+            />
+          )}
+          {rt.tone !== 'faint' &&
+            chevrons(pts).map((c, i) => (
+              <path
+                key={i}
+                d="M -3.5 -4 L 2.5 0 L -3.5 4"
+                transform={`translate(${c.x.toFixed(1)} ${c.y.toFixed(1)}) rotate(${c.a.toFixed(1)})`}
+                fill="none"
+                stroke={strong ? 'var(--plate-ink)' : 'var(--surface)'}
+                strokeWidth={1.8}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            ))}
+        </g>
+      )
+    })
+}
 
 export interface OverlayProps {
   toPx: (lng: number, lat: number) => Px
@@ -11,6 +86,7 @@ export interface OverlayProps {
   pxPerMeter: (lng: number, lat: number) => number
   points: MapPoint[]
   circles: MapCircle[]
+  routes?: MapRoute[]
   selectedId?: string | null
   hoverId?: string | null
   emphasizeIds?: string[]
@@ -64,6 +140,8 @@ export function MapOverlay(p: OverlayProps) {
         )
       })}
 
+      <Routes routes={p.routes ?? []} toPx={p.toPx} />
+
       {p.points.map((s) => {
         const [x, y] = p.toPx(s.lng, s.lat)
         const sel = s.id === p.selectedId
@@ -103,15 +181,42 @@ export function MapOverlay(p: OverlayProps) {
               </>
             )}
             <circle cx={x} cy={y} r={12} fill="transparent" />
-            <circle
-              cx={x}
-              cy={y}
-              r={sel ? 8 : em || hov ? 6 : 4.8}
-              fill={sel ? 'var(--plate)' : 'var(--surface)'}
-              stroke={sel || em ? 'var(--plate)' : 'var(--ink-2)'}
-              strokeWidth={sel ? 3 : em ? 2.2 : 1.6}
-            />
-            {sel && <circle cx={x} cy={y} r={2.6} fill="var(--coral)" />}
+            {s.badge ? (
+              // 带序号的站点（线路表单、线路详情）
+              <>
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={sel ? 11 : 9}
+                  fill={sel ? 'var(--plate)' : 'var(--surface)'}
+                  stroke="var(--plate)"
+                  strokeWidth={sel ? 2.5 : 1.8}
+                />
+                <text
+                  x={x}
+                  y={y + 3.6}
+                  textAnchor="middle"
+                  fontSize={10.5}
+                  fontWeight={700}
+                  fill={sel ? 'var(--plate-ink)' : 'var(--plate)'}
+                  style={{ fontFamily: 'var(--font-plate)' }}
+                >
+                  {s.badge}
+                </text>
+              </>
+            ) : (
+              <>
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={sel ? 8 : em || hov ? 6 : 4.8}
+                  fill={sel ? 'var(--plate)' : 'var(--surface)'}
+                  stroke={sel || em ? 'var(--plate)' : 'var(--ink-2)'}
+                  strokeWidth={sel ? 3 : em ? 2.2 : 1.6}
+                />
+                {sel && <circle cx={x} cy={y} r={2.6} fill="var(--coral)" />}
+              </>
+            )}
             {(p.showLabels || sel || hov) && (
               <text
                 x={x + 11}

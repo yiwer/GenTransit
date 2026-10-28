@@ -1,18 +1,12 @@
-import {
-  ROUTE_KIND_LABEL,
-  type Page,
-  type Ref,
-  type StopDetail,
-  type StopListItem,
-  type StopListQuery,
-} from '@gentransit/shared'
+import { ROUTE_KIND_LABEL, type Page, type Ref, type StopDetail, type StopListItem } from '@gentransit/shared'
 import { useQuery } from '@tanstack/react-query'
 import { RoutePlate } from '@/components/gt/symbols'
 import { get } from '@/lib/api'
 
 export const stopKey = (id: string) => ['stops', 'detail', id] as const
 
-export const useStopList = (params: Partial<StopListQuery>) =>
+/** 列表查询参数直接写进 URL 查询串（lineIds 为逗号分隔的线路 ID） */
+export const useStopList = (params: Record<string, string | number | undefined>) =>
   useQuery({
     queryKey: ['stops', 'list', params],
     queryFn: () => get<Page<StopListItem>>('/api/stops', params),

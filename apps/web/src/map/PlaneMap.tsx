@@ -41,6 +41,7 @@ export function PlaneMap({
   marker,
   onPick,
   circles = [],
+  routes = [],
   fit,
   className,
   overlay,
@@ -48,6 +49,8 @@ export function PlaneMap({
 }: MapProps & { notice?: string }) {
   const wrap = useRef<HTMLDivElement>(null)
   const [box, setBox] = useState({ w: 800, h: 600 })
+  // 量到容器真实尺寸后再适配一次视野（首帧只能按估计尺寸）
+  const [measured, setMeasured] = useState(false)
   const [view, setView] = useState<View>(() => fitView(fit?.points ?? [], 800, 600))
   const [hoverLocal, setHoverLocal] = useState<string | null>(null)
   const drag = useRef<{ kind: 'pan' | 'marker'; sx: number; sy: number; view: View; moved: boolean } | null>(null)
@@ -57,7 +60,10 @@ export function PlaneMap({
   useLayoutEffect(() => {
     const el = wrap.current
     if (!el) return
-    const measure = () => setBox({ w: el.clientWidth || 800, h: el.clientHeight || 600 })
+    const measure = () => {
+      setBox({ w: el.clientWidth || 800, h: el.clientHeight || 600 })
+      if (el.clientWidth) setMeasured(true)
+    }
     measure()
     if (typeof ResizeObserver === 'undefined') return
     const ro = new ResizeObserver(measure)
@@ -70,7 +76,7 @@ export function PlaneMap({
   useEffect(() => {
     if (fit) setView(fitView(fit.points, box.w, box.h))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitKey, box.w > 0])
+  }, [fitKey, measured])
 
   const toPx = (lng: number, lat: number): [number, number] => [
     box.w / 2 + ((lng - view.lng) * mPerDegLng(view.lat)) / view.mpp,
@@ -182,36 +188,42 @@ export function PlaneMap({
           const y = toPx(view.lng, g)[1]
           return <line key={`h${g}`} x1={0} x2={box.w} y1={y} y2={y} stroke="var(--map-casing)" strokeWidth={1} />
         })}
-        {vLines.map((g) => (
-          <text
-            key={`vt${g}`}
-            x={toPx(g, view.lat)[0] + 4}
-            y={box.h - 34}
-            fontSize={10}
-            fill="var(--map-label)"
-            fontFamily="var(--font-mono)"
-          >
-            {g.toFixed(4)}
-          </text>
-        ))}
-        {hLines.map((g) => (
-          <text
-            key={`ht${g}`}
-            x={6}
-            y={toPx(view.lng, g)[1] - 4}
-            fontSize={10}
-            fill="var(--map-label)"
-            fontFamily="var(--font-mono)"
-          >
-            {g.toFixed(4)}
-          </text>
-        ))}
+        {/* 坐标刻度：避开左下角的比例尺 */}
+        {vLines
+          .filter((g) => toPx(g, view.lat)[0] > 130)
+          .map((g) => (
+            <text
+              key={`vt${g}`}
+              x={toPx(g, view.lat)[0] + 4}
+              y={box.h - 34}
+              fontSize={10}
+              fill="var(--map-label)"
+              fontFamily="var(--font-mono)"
+            >
+              {g.toFixed(4)}
+            </text>
+          ))}
+        {hLines
+          .filter((g) => toPx(view.lng, g)[1] < box.h - 56)
+          .map((g) => (
+            <text
+              key={`ht${g}`}
+              x={6}
+              y={toPx(view.lng, g)[1] - 4}
+              fontSize={10}
+              fill="var(--map-label)"
+              fontFamily="var(--font-mono)"
+            >
+              {g.toFixed(4)}
+            </text>
+          ))}
       </svg>
       <MapOverlay
         toPx={toPx}
         pxPerMeter={() => 1 / view.mpp}
         points={points}
         circles={circles}
+        routes={routes}
         selectedId={selectedId}
         hoverId={hoverId ?? hoverLocal}
         emphasizeIds={emphasizeIds}

@@ -1,10 +1,12 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common'
 import {
   stopInput,
+  stopMatchInput,
   stopListQuery,
   stopUpdateInput,
   type StopInput,
   type StopListQuery,
+  type StopMatchInput,
   type StopUpdateInput,
 } from '@gentransit/shared'
 import { z } from 'zod'
@@ -35,6 +37,13 @@ export class StopController {
   @Get('check-name')
   checkName(@Query(new ZodPipe(nameQuery)) q: z.infer<typeof nameQuery>) {
     return this.svc.checkName(q.name, q.direction, q.excludeId)
+  }
+
+  /** 站名 + 方位批量匹配（只读，用 POST 以便传较多行） */
+  @Post('match')
+  @HttpCode(200)
+  match(@Body(new ZodPipe(stopMatchInput)) body: StopMatchInput) {
+    return this.svc.match(body.rows)
   }
 
   @Get(':id')

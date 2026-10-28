@@ -4,7 +4,6 @@ import {
   ERROR_CODES,
   STOP_DIFF_SPEC,
   changedLabels,
-  checkExtValue,
   compareLineName,
   isDirection,
   roundCoord,
@@ -21,10 +20,12 @@ import {
   type StopInput,
   type StopListItem,
   type StopListQuery,
+  type StopMatchResult,
   type StopNameCheck,
   type StopUpdateInput,
 } from '@gentransit/shared'
 import { AppError, duplicate, inUse, invalid, notFound } from '../common/errors'
+import { validateExt } from '../common/ext'
 import { stopReferrers } from '../common/referrers'
 import type { Prisma } from '../generated/prisma/client'
 import { PrismaService, type Tx } from '../prisma/prisma.service'
@@ -34,7 +35,7 @@ import { UploadService } from '../uploads/upload.service'
 
 const REF = { select: { id: true, name: true } } as const
 
-const DETAIL_INCLUDE = {
+export const STOP_DETAIL_INCLUDE = {
   city: REF,
   district: REF,
   street: REF,
@@ -55,10 +56,10 @@ const LIST_INCLUDE = {
   road: REF,
   maintainer: REF,
   landmarks: { include: { landmark: REF } },
-  routeStops: { select: { route: { select: { line: { select: { name: true, status: true } } } } } },
+  routeStops: { select: { route: { select: { line: { select: { id: true, name: true, status: true } } } } } },
 } satisfies Prisma.StopInclude
 
-type DetailRow = Prisma.StopGetPayload<{ include: typeof DETAIL_INCLUDE }>
+type DetailRow = Prisma.StopGetPayload<{ include: typeof STOP_DETAIL_INCLUDE }>
 type ListRow = Prisma.StopGetPayload<{ include: typeof LIST_INCLUDE }>
 
 const ref = (r: Ref | null): Ref | null => (r ? { id: r.id, name: r.name } : null)
@@ -82,26 +83,26 @@ export class StopService {
   }
 
   async detail(db: Tx, id: string): Promise<StopDetail> {
-    const s = await db.stop.findUnique({ where: { id }, include: DETAIL_INCLUDE })
+    const s = await db.stop.findUnique({ where: { id }, include: STOP_DETAIL_INCLUDE })
     if (!s) throw notFound('站点')
     const routes = await db.route.findMany({
       where: { stops: { some: { stopId: id } } },
       include: {
         line: { select: { id: true, name: true, status: true } },
-        stops: { orderBy: { seq: 'desc' }, take: 1, select: { stop: { select: { name: true } } } },
+        stops: { orderBy: { seq: 'asc' }, select: { stop: { select: { name: true, lng: true, lat: true } } } },
       },
     })
     const snapshotCount = await db.snapshot.count({ where: { objectType: 'stop', objectId: id } })
     return this.toDetail(s, routes, snapshotCount)
   }
 
-  private toDetail(
+  toDetail(
     s: DetailRow,
     routes: {
       id: string
       kind: StopDetail['routes'][number]['routeKind']
       line: { id: string; name: string; status: string }
-      stops: { stop: { name: string } }[]
+      stops: { stop: { name: string; lng: number; lat: number } }[]
     }[],
     snapshotCount: number,
   ): StopDetail {
@@ -142,7 +143,8 @@ export class StopService {
           routeId: r.id,
           routeKind: r.kind,
           suspended: r.line.status === 'suspended',
-          terminal: r.stops[0]?.stop.name ?? '',
+          terminal: r.stops.at(-1)?.stop.name ?? '',
+          path: r.stops.map((x) => [x.stop.lng, x.stop.lat] as [number, number]),
         }))
         .sort((a, b) => compareLineName(a.lineName, b.lineName) || a.routeKind.localeCompare(b.routeKind)),
       // 站牌集的站架、站牌与编排状态在 M3 计算
@@ -154,8 +156,13 @@ export class StopService {
   }
 
   private toListItem(s: ListRow): StopListItem {
-    const lines = new Map<string, boolean>()
-    for (const rs of s.routeStops) lines.set(rs.route.line.name, rs.route.line.status === 'suspended')
+    const lines = new Map<string, { id: string; name: string; suspended: boolean }>()
+    for (const { route } of s.routeStops)
+      lines.set(route.line.id, {
+        id: route.line.id,
+        name: route.line.name,
+        suspended: route.line.status === 'suspended',
+      })
     return {
       id: s.id,
       name: s.name,
@@ -170,9 +177,7 @@ export class StopService {
       maintainer: ref(s.maintainer),
       remark: s.remark,
       landmarks: s.landmarks.map((l) => ref(l.landmark)!),
-      lines: [...lines]
-        .map(([name, suspended]) => ({ name, suspended }))
-        .sort((a, b) => compareLineName(a.name, b.name)),
+      lines: [...lines.values()].sort((a, b) => compareLineName(a.name, b.name)),
       ext: (s.ext ?? {}) as Record<string, unknown>,
       updatedAt: s.updatedAt.toISOString(),
     }
@@ -180,6 +185,16 @@ export class StopService {
 
   /** 列表：筛选、分页、排序（站名按拼音序，列排序规则 zh-x-icu） */
   async list(q: StopListQuery): Promise<Page<StopListItem>> {
+    const { where, orderBy } = this.query(q)
+    const [total, rows] = await Promise.all([
+      this.prisma.stop.count({ where }),
+      this.prisma.stop.findMany({ where, orderBy, skip: (q.page - 1) * q.size, take: q.size, include: LIST_INCLUDE }),
+    ])
+    return { items: rows.map((r) => this.toListItem(r)), total, page: q.page, size: q.size }
+  }
+
+  /** 列表与导出共用的筛选与排序 */
+  query(q: Omit<StopListQuery, 'page' | 'size'>) {
     const where: Prisma.StopWhereInput = {
       direction: q.dir || undefined,
       cityId: q.cityId,
@@ -187,7 +202,7 @@ export class StopService {
       streetId: q.streetId,
       roadId: q.roadId,
       maintainerId: q.maintainerId,
-      routeStops: q.line ? { some: { route: { line: { name: q.line } } } } : undefined,
+      routeStops: q.lineIds?.length ? { some: { route: { lineId: { in: q.lineIds } } } } : undefined,
       OR: q.q
         ? [
             { name: { contains: q.q, mode: 'insensitive' } },
@@ -200,11 +215,7 @@ export class StopService {
       q.sort === 'updatedAt' || q.sort === '-updatedAt'
         ? [{ updatedAt: q.sort === 'updatedAt' ? 'asc' : 'desc' }, { id: 'asc' }]
         : [{ name: q.sort === '-name' ? 'desc' : 'asc' }, { direction: 'asc' }, { id: 'asc' }]
-    const [total, rows] = await Promise.all([
-      this.prisma.stop.count({ where }),
-      this.prisma.stop.findMany({ where, orderBy, skip: (q.page - 1) * q.size, take: q.size, include: LIST_INCLUDE }),
-    ])
-    return { items: rows.map((r) => this.toListItem(r)), total, page: q.page, size: q.size }
+    return { where, orderBy }
   }
 
   /** 站名联想：去重后的站名 */
@@ -218,6 +229,19 @@ export class StopService {
       take: 10,
     })
     return rows.map((r) => r.name)
+  }
+
+  /** 站名 + 方位批量匹配：供线路表单"粘贴两列文本"使用 */
+  async match(rows: { name: string; direction: string }[]): Promise<StopMatchResult[]> {
+    const pairs = rows.filter((r) => r.name && r.direction)
+    const found = pairs.length
+      ? await this.prisma.stop.findMany({
+          where: { OR: pairs.map((r) => ({ name: r.name, direction: r.direction })) },
+          select: { id: true, name: true, direction: true, lng: true, lat: true },
+        })
+      : []
+    const byKey = new Map(found.map((s) => [`${s.name}\u0000${s.direction}`, s]))
+    return rows.map((r, index) => ({ index, ...r, stop: byKey.get(`${r.name}\u0000${r.direction}`) ?? null }))
   }
 
   /** 站名 + 方位重复的即时检查 */
@@ -275,17 +299,7 @@ export class StopService {
 
     // 扩展字段按定义校验；停用字段的已有值保留，不接受新值
     const defs = await db.extField.findMany({ where: { owner: 'stop' } })
-    const byKey = new Map(defs.map((d) => [d.key, d]))
-    const ext: Record<string, unknown> = {}
-    for (const d of defs) if (!d.enabled && existingExt[d.key] != null) ext[d.key] = existingExt[d.key]
-    for (const [k, raw] of Object.entries(input.ext)) {
-      const d = byKey.get(k)
-      if (!d) throw invalid(`未知的扩展字段「${k}」`)
-      if (!d.enabled) continue
-      const r = checkExtValue(d, raw)
-      if (!r.ok) throw invalid(r.error, { issues: [{ path: `ext.${k}`, message: r.error }] })
-      if (r.value !== null) ext[k] = r.value
-    }
+    const ext = validateExt(defs, input.ext, existingExt)
     return { landmarkIds, photoIds, ext, defs }
   }
 

@@ -1,8 +1,10 @@
 // 接口返回的数据形状（DTO）
+import type { LineStatus, ServiceType, TicketType } from './line'
 import type {
   DictCategory,
   ExtOwner,
   ExtType,
+  LineMode,
   ObjectType,
   OrientationMode,
   RegionLevel,
@@ -157,6 +159,8 @@ export interface PassingRoute {
   suspended: boolean
   /** 终点站名 */
   terminal: string
+  /** 走向折线（按站序的站点坐标） */
+  path: [number, number][]
 }
 
 export interface StopFacilities {
@@ -211,7 +215,7 @@ export interface StopListItem {
   maintainer: Ref | null
   remark: string
   landmarks: Ref[]
-  lines: { name: string; suspended: boolean }[]
+  lines: { id: string; name: string; suspended: boolean }[]
   ext: Record<string, unknown>
   updatedAt: string
 }
@@ -260,4 +264,93 @@ export interface RegeoResult {
   district: RegeoMatch | null
   street: RegeoMatch | null
   road: RegeoMatch | null
+}
+
+/* ---------------- 线路 ---------------- */
+
+export interface RouteStopDetail {
+  stop: { id: string; name: string; direction: string; lng: number; lat: number }
+  seq: number
+  /** 第几次途经（实时计算） */
+  pass: number
+  times: string[]
+  ext: Record<string, unknown>
+}
+
+export interface RouteDetail {
+  id: string
+  kind: RouteKind
+  serviceType: ServiceType | null
+  serviceTime: string
+  interval: string
+  stops: RouteStopDetail[]
+}
+
+export interface LineDetail {
+  id: string
+  rev: number
+  name: string
+  number: string
+  nameEn: string
+  mode: LineMode
+  status: LineStatus
+  ticketType: TicketType | null
+  fare: string
+  company: Ref | null
+  fareSystem: Ref | null
+  ext: Record<string, unknown>
+  routes: RouteDetail[]
+  snapshotCount: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface LineRouteSummary {
+  id: string
+  kind: RouteKind
+  count: number
+  origin: string
+  terminal: string
+  path: [number, number][]
+}
+
+export interface LineListItem {
+  id: string
+  name: string
+  number: string
+  nameEn: string
+  mode: LineMode
+  status: LineStatus
+  company: Ref | null
+  ticketType: TicketType | null
+  fareSystem: Ref | null
+  fare: string
+  routes: LineRouteSummary[]
+  ext: Record<string, unknown>
+  updatedAt: string
+}
+
+/** 线路详情条形图：每站可换乘的其他线路 */
+export interface TransferStop {
+  stopId: string
+  lines: { id: string; name: string; suspended: boolean }[]
+}
+
+export interface LineDeleteCheck {
+  routes: number
+  stops: number
+  /** M3 起：受影响的站牌集数（M2 为 0） */
+  affectedSignSets: number
+}
+
+export interface LineNameCheck {
+  exists: boolean
+  line: { id: string; name: string; number: string } | null
+}
+
+export interface StopMatchResult {
+  index: number
+  name: string
+  direction: string
+  stop: { id: string; name: string; direction: string; lng: number; lat: number } | null
 }

@@ -11,7 +11,9 @@ import { AllExceptionsFilter } from './common/http-exception.filter'
 import { ConfigModule } from './config/config.module'
 import { ENV, type Env } from './config/env'
 import { HealthController } from './health/health.controller'
+import { ImportModule } from './import/import.module'
 import { LandmarksModule } from './landmarks/landmarks.module'
+import { LineModule } from './lines/line.module'
 import { PrismaModule } from './prisma/prisma.module'
 import { SettingsModule } from './settings/settings.module'
 import { SnapshotModule } from './snapshots/snapshot.module'
@@ -52,6 +54,8 @@ import { UploadModule } from './uploads/upload.module'
     AmapModule,
     LandmarksModule,
     StopModule,
+    LineModule,
+    ImportModule,
   ],
   controllers: [HealthController],
   providers: [
