@@ -1,0 +1,413 @@
+// GenTransit 数据模型（M1）。说明见 docs/planning/2026-10-28-m1-plan.md 第 3 节
+// 名称类字段在迁移里使用 COLLATE "zh-x-icu"，按拼音排序
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "cjs"
+  importFileExtension = ""
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/* ---------------- 账号、设置、上传 ---------------- */
+
+model Account {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  username     String    @unique
+  passwordHash String
+  failedCount  Int       @default(0)
+  lockedUntil  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+}
+
+model Session {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  accountId  String   @db.Uuid
+  account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([accountId])
+}
+
+enum OrientationMode {
+  orientation
+  code
+}
+
+/// 单行设置表，id 固定为 1
+model Setting {
+  id              Int             @id @default(1)
+  orientationMode OrientationMode @default(orientation)
+  landmarkLimit   Int             @default(5)
+  autoMatch       Boolean         @default(true)
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+}
+
+enum ExtOwner {
+  stop
+  line
+  routeStop
+}
+
+enum ExtType {
+  text
+  select
+  number
+  date
+  time
+  textList
+}
+
+enum StopSection {
+  basic
+  facility
+  other
+}
+
+model ExtField {
+  id          String       @id @default(uuid(7)) @db.Uuid
+  owner       ExtOwner
+  key         String
+  name        String
+  type        ExtType
+  options     String[]
+  description String       @default("")
+  section     StopSection?
+  enabled     Boolean      @default(true)
+  sort        Int          @default(0)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([owner, key])
+  @@unique([owner, name])
+}
+
+model Upload {
+  id           String      @id @default(uuid(7)) @db.Uuid
+  path         String
+  originalName String
+  mime         String
+  size         Int
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  companies    BusCompany[]
+  stopPhotos   StopPhoto[]
+}
+
+/* ---------------- 基础数据与地标 ---------------- */
+
+enum DictCategory {
+  shelfType
+  maintainer
+  road
+  fareSystem
+  platformType
+  safety
+  shelterType
+}
+
+model DictItem {
+  id        String       @id @default(uuid(7)) @db.Uuid
+  category  DictCategory
+  name      String
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  roadStops         Stop[] @relation("StopRoad")
+  platformTypeStops Stop[] @relation("StopPlatformType")
+  safetyStops       Stop[] @relation("StopSafety")
+  shelterTypeStops  Stop[] @relation("StopShelterType")
+  maintainerStops   Stop[] @relation("StopMaintainer")
+  fareSystemLines   Line[] @relation("LineFareSystem")
+
+  @@unique([category, name])
+}
+
+enum RegionLevel {
+  city
+  district
+  street
+}
+
+model Region {
+  id        String      @id @default(uuid(7)) @db.Uuid
+  level     RegionLevel
+  parentId  String?     @db.Uuid
+  parent    Region?     @relation("RegionTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children  Region[]    @relation("RegionTree")
+  name      String
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  cityStops     Stop[] @relation("StopCity")
+  districtStops Stop[] @relation("StopDistrict")
+  streetStops   Stop[] @relation("StopStreet")
+
+  @@unique([parentId, name])
+}
+
+model BusCompany {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  name      String   @unique
+  nameEn    String   @default("")
+  shortName String   @default("")
+  logoId    String?  @db.Uuid
+  logo      Upload?  @relation(fields: [logoId], references: [id], onDelete: Restrict)
+  hotline   String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lines     Line[]
+}
+
+model LandmarkCategory {
+  id            String     @id @default(uuid(7)) @db.Uuid
+  name          String     @unique
+  icon          String     @default("landmark")
+  defaultRadius Int
+  enabled       Boolean    @default(true)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  landmarks     Landmark[]
+}
+
+model Landmark {
+  id         String           @id @default(uuid(7)) @db.Uuid
+  name       String
+  nameEn     String           @default("")
+  categoryId String           @db.Uuid
+  category   LandmarkCategory @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+  points     LandmarkPoint[]
+  stops      StopLandmark[]
+
+  @@index([categoryId])
+}
+
+model LandmarkPoint {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  landmarkId String   @db.Uuid
+  landmark   Landmark @relation(fields: [landmarkId], references: [id], onDelete: Cascade)
+  lng        Float
+  lat        Float
+  radius     Int
+  sort       Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([landmarkId])
+}
+
+/* ---------------- 站点与站牌集 ---------------- */
+
+model Stop {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  name           String
+  /// 方位或编码，统一存文本
+  direction      String
+  nameEn         String    @default("")
+  lng            Float
+  lat            Float
+  cityId         String?   @db.Uuid
+  city           Region?   @relation("StopCity", fields: [cityId], references: [id], onDelete: Restrict)
+  districtId     String?   @db.Uuid
+  district       Region?   @relation("StopDistrict", fields: [districtId], references: [id], onDelete: Restrict)
+  streetId       String?   @db.Uuid
+  street         Region?   @relation("StopStreet", fields: [streetId], references: [id], onDelete: Restrict)
+  roadId         String?   @db.Uuid
+  road           DictItem? @relation("StopRoad", fields: [roadId], references: [id], onDelete: Restrict)
+  qrUrl          String    @default("")
+  berths         Int?
+  platformTypeId String?   @db.Uuid
+  platformType   DictItem? @relation("StopPlatformType", fields: [platformTypeId], references: [id], onDelete: Restrict)
+  safetyId       String?   @db.Uuid
+  safety         DictItem? @relation("StopSafety", fields: [safetyId], references: [id], onDelete: Restrict)
+  waiting        String    @default("")
+  shelterTypeId  String?   @db.Uuid
+  shelterType    DictItem? @relation("StopShelterType", fields: [shelterTypeId], references: [id], onDelete: Restrict)
+  bigLightbox    Int?
+  smallLightbox  Int?
+  seats          Int?
+  maintainerId   String?   @db.Uuid
+  maintainer     DictItem? @relation("StopMaintainer", fields: [maintainerId], references: [id], onDelete: Restrict)
+  remark         String    @default("")
+  ext            Json      @default("{}")
+  rev            Int       @default(1)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  landmarks  StopLandmark[]
+  photos     StopPhoto[]
+  signSet    SignSet?
+  routeStops RouteStop[]
+
+  @@unique([name, direction])
+  @@index([districtId])
+  @@index([streetId])
+  @@index([roadId])
+  @@index([maintainerId])
+  @@index([updatedAt])
+}
+
+model StopLandmark {
+  stopId     String   @db.Uuid
+  stop       Stop     @relation(fields: [stopId], references: [id], onDelete: Cascade)
+  landmarkId String   @db.Uuid
+  landmark   Landmark @relation(fields: [landmarkId], references: [id], onDelete: Restrict)
+  createdAt  DateTime @default(now())
+
+  @@id([stopId, landmarkId])
+  @@index([landmarkId])
+}
+
+model StopPhoto {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  stopId    String   @db.Uuid
+  stop      Stop     @relation(fields: [stopId], references: [id], onDelete: Cascade)
+  uploadId  String   @db.Uuid
+  upload    Upload   @relation(fields: [uploadId], references: [id], onDelete: Restrict)
+  sort      Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([stopId])
+  @@index([uploadId])
+}
+
+/// 每个站点恰有一个站牌集；站架、站牌、插片、编排的表在 M3 建
+model SignSet {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  stopId    String   @unique @db.Uuid
+  stop      Stop     @relation(fields: [stopId], references: [id], onDelete: Cascade)
+  reminder  String   @default("")
+  rev       Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/* ---------------- 线路（M1 只建表，界面与接口在 M2） ---------------- */
+
+enum LineMode {
+  oneway
+  twoway
+  loop
+  doubleLoop
+}
+
+enum LineStatus {
+  running
+  suspended
+}
+
+enum TicketType {
+  attended
+  unattended
+}
+
+enum RouteKind {
+  up
+  down
+  inner
+  outer
+  oneway
+  loop
+}
+
+enum ServiceType {
+  scheduled
+  interval
+}
+
+model Line {
+  id           String      @id @default(uuid(7)) @db.Uuid
+  name         String      @unique
+  number       String      @unique
+  nameEn       String      @default("")
+  mode         LineMode
+  companyId    String?     @db.Uuid
+  company      BusCompany? @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  ticketType   TicketType?
+  fareSystemId String?     @db.Uuid
+  fareSystem   DictItem?   @relation("LineFareSystem", fields: [fareSystemId], references: [id], onDelete: Restrict)
+  fare         String      @default("")
+  status       LineStatus  @default(running)
+  ext          Json        @default("{}")
+  rev          Int         @default(1)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  routes       Route[]
+}
+
+model Route {
+  id          String       @id @default(uuid(7)) @db.Uuid
+  lineId      String       @db.Uuid
+  line        Line         @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  kind        RouteKind
+  serviceType ServiceType?
+  serviceTime String       @default("")
+  interval    String       @default("")
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  stops       RouteStop[]
+
+  @@unique([lineId, kind])
+}
+
+model RouteStop {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  routeId   String   @db.Uuid
+  route     Route    @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  stopId    String   @db.Uuid
+  stop      Stop     @relation(fields: [stopId], references: [id], onDelete: Restrict)
+  seq       Int
+  times     String[]
+  ext       Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([routeId, seq])
+  @@index([stopId])
+}
+
+/* ---------------- 修改快照 ---------------- */
+
+enum ObjectType {
+  stop
+  line
+  signSet
+}
+
+enum SnapshotAction {
+  create
+  update
+  delete
+  importCreate
+  importUpdate
+  cascadeUpdate
+}
+
+model Snapshot {
+  id          String         @id @default(uuid(7)) @db.Uuid
+  objectType  ObjectType
+  objectId    String         @db.Uuid
+  objectName  String
+  action      SnapshotAction
+  note        String         @default("")
+  content     Json
+  compareHash String
+  createdAt   DateTime       @default(now())
+
+  @@index([objectType, objectId, createdAt(sort: Desc)])
+  @@index([objectType, action, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+}

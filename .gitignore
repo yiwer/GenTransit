@@ -1,0 +1,17 @@
+node_modules/
+dist/
+dist-dev/
+coverage/
+*.log
+.DS_Store
+
+# 本机环境变量，不提交
+.env
+.env.local
+
+# 生成物与运行时数据
+apps/server/src/generated/
+apps/server/uploads/
+apps/web/playwright-report/
+apps/web/test-results/
+*.tsbuildinfo

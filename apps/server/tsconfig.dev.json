@@ -1,0 +1,7 @@
+{
+  // 开发模式编译到单独目录，避免 pnpm build（会清空 dist）打断正在运行的 pnpm dev
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "outDir": "dist-dev"
+  }
+}

@@ -1,0 +1,20 @@
+# 开发用 PostgreSQL 16（官方镜像自带 ICU，中文按拼音排序用 "zh-x-icu"）
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: gentransit
+      POSTGRES_PASSWORD: gentransit
+      POSTGRES_DB: gentransit
+    ports:
+      - '127.0.0.1:54329:5432'
+    volumes:
+      - gt-db-dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U gentransit -d gentransit']
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  gt-db-dev:

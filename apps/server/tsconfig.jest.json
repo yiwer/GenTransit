@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // 只转译不做类型检查（类型检查由 pnpm typecheck 负责）
+    "isolatedModules": true,
+    // Prisma 7 生成的客户端用动态 import() 加载查询编译器；Jest 的 CJS 环境不支持，
+    // 这里让 TS 把 import() 编译成 require()（运行时文件本身是 CJS）
+    "module": "CommonJS",
+    "moduleResolution": "Node10"
+  }
+}

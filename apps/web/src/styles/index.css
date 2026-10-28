@@ -1,0 +1,391 @@
+@import 'tailwindcss';
+
+/*
+ * GenTransit 设计语言「导向 · 画室」（docs/design-language.md）
+ * 令牌从 M0 原型移植；同时映射到 shadcn/ui 的变量（--background、--primary、--ring 等）
+ */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  /* 纸与墨 */
+  --paper: #f3eee5;
+  --surface: #fffcf7;
+  --surface-2: #faf6ef;
+  --sunken: #ede6d9;
+  --hairline: rgba(74, 56, 36, 0.12);
+  --hairline-2: rgba(74, 56, 36, 0.22);
+  --ink: #221c15;
+  --ink-2: #574c40;
+  --ink-3: #72665a;
+  --ink-4: #a69a8a;
+
+  /* 墨绿搪瓷：主操作与线路牌 */
+  --accent: #1f4547;
+  --accent-hover: #2b5a5c;
+  --accent-soft: #dce7e3;
+  --accent-ink: #fbf6ec;
+  --plate: #1f4547;
+  --plate-ink: #fbf6ec;
+
+  /* 赭石 = 需要处理；陶土 = 失效/危险；鼠尾草 = 正常/完成；珊瑚 = 灵动高光 */
+  --signal: #c8902e;
+  --signal-soft: #f5e6c6;
+  --signal-ink: #6a4a10;
+  --danger: #b4502f;
+  --danger-soft: #f6ddd2;
+  --sage: #5a7a68;
+  --sage-soft: #dfe7df;
+  --coral: #d97757;
+
+  /* 示意地图 */
+  --map-land: #eee7da;
+  --map-block: #e6decf;
+  --map-water: #c7d6d3;
+  --map-park: #d3dcc6;
+  --map-road: #fbf7f0;
+  --map-road-major: #f7ebd3;
+  --map-casing: #d8cdbb;
+  --map-label: #857a6b;
+
+  --shadow-xs: 0 1px 0 rgba(74, 56, 36, 0.05), 0 1px 2px rgba(74, 56, 36, 0.07);
+  --shadow-float: 0 1px 2px rgba(74, 56, 36, 0.08), 0 14px 34px -10px rgba(60, 42, 22, 0.22);
+  --shadow-pop: 0 2px 6px rgba(60, 42, 22, 0.1), 0 22px 52px -14px rgba(60, 42, 22, 0.32);
+
+  --spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* shadcn/ui 变量映射 */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--accent);
+  --primary-foreground: var(--accent-ink);
+  --secondary: var(--sunken);
+  --secondary-foreground: var(--ink);
+  --muted: var(--surface-2);
+  --muted-foreground: var(--ink-3);
+  --destructive: var(--danger);
+  --border: var(--hairline);
+  --input: var(--hairline-2);
+  --ring: var(--accent);
+  --radius: 0.5rem;
+}
+
+.dark {
+  --paper: #171512;
+  --surface: #1e1b17;
+  --surface-2: #221f1a;
+  --sunken: #2a2620;
+  --hairline: rgba(255, 240, 220, 0.08);
+  --hairline-2: rgba(255, 240, 220, 0.16);
+  --ink: #efe8dc;
+  --ink-2: #c4baaa;
+  --ink-3: #9d9282;
+  --ink-4: #6e655a;
+
+  --accent: #8dbab4;
+  --accent-hover: #a3cac4;
+  --accent-soft: #1f2f2d;
+  --accent-ink: #13201f;
+  --plate: #d6e6e1;
+  --plate-ink: #13211f;
+
+  --signal: #e2ae4a;
+  --signal-soft: #3a2c10;
+  --signal-ink: #f0c873;
+  --danger: #e58a6c;
+  --danger-soft: #3c1d14;
+  --sage: #8fb09b;
+  --sage-soft: #1d2a22;
+  --coral: #e8906f;
+
+  --map-land: #1c1915;
+  --map-block: #211e19;
+  --map-water: #1a2a2a;
+  --map-park: #1e2a1f;
+  --map-road: #2e2a23;
+  --map-road-major: #3a3227;
+  --map-casing: #141210;
+  --map-label: #918676;
+
+  --shadow-xs: 0 1px 0 rgba(0, 0, 0, 0.35);
+  --shadow-float: 0 1px 2px rgba(0, 0, 0, 0.45), 0 14px 34px -10px rgba(0, 0, 0, 0.65);
+  --shadow-pop: 0 2px 6px rgba(0, 0, 0, 0.5), 0 22px 52px -14px rgba(0, 0, 0, 0.75);
+}
+
+@theme inline {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-sunken: var(--sunken);
+  --color-hairline: var(--hairline);
+  --color-hairline-2: var(--hairline-2);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-ink-4: var(--ink-4);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-ink: var(--accent-ink);
+  --color-plate: var(--plate);
+  --color-plate-ink: var(--plate-ink);
+  --color-signal: var(--signal);
+  --color-signal-soft: var(--signal-soft);
+  --color-signal-ink: var(--signal-ink);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-sage: var(--sage);
+  --color-sage-soft: var(--sage-soft);
+  --color-coral: var(--coral);
+
+  /* shadcn/ui 语义色 */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --font-sans: 'Plus Jakarta Sans', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei UI', system-ui, sans-serif;
+  --font-display: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
+  --font-plate: 'Barlow Condensed', 'Noto Sans SC', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace;
+
+  --shadow-xs: var(--shadow-xs);
+  --shadow-float: var(--shadow-float);
+  --shadow-pop: var(--shadow-pop);
+  --ease-spring: var(--spring);
+  --ease-bounce: var(--bounce);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 1280px;
+  background-color: var(--paper);
+  /* 纸张微颗粒 */
+  background-image: radial-gradient(rgba(74, 56, 36, 0.045) 1px, transparent 0);
+  background-size: 22px 22px;
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.55;
+  font-feature-settings: 'tnum' 1;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  transition:
+    background-color 0.4s var(--spring),
+    color 0.4s var(--spring);
+}
+
+.dark body {
+  background-image: radial-gradient(rgba(255, 240, 220, 0.03) 1px, transparent 0);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+::selection {
+  background: var(--signal-soft);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--hairline-2) transparent;
+}
+
+button:not(:disabled),
+[role='button'] {
+  cursor: pointer;
+}
+
+.font-display {
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+}
+
+.eyebrow {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+}
+
+/* 高德 logo 与版权信息保持可见，但融入纸面 */
+.amap-logo,
+.amap-copyright {
+  opacity: 0.75;
+}
+
+/* ---------- 灵动组件的动效 ---------- */
+
+@keyframes gt-breathe {
+  0%,
+  100% {
+    transform: scale(0.85);
+    opacity: 0.75;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+}
+@keyframes gt-ripple {
+  0% {
+    transform: scale(0.4);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.6);
+    opacity: 0;
+  }
+}
+@keyframes gt-flow {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: -60;
+  }
+}
+@keyframes gt-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes gt-orbit-rev {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+@keyframes gt-draw {
+  from {
+    stroke-dashoffset: var(--len, 60);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes gt-pop {
+  0% {
+    transform: scale(0.6) rotate(-20deg);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08) rotate(8deg);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 1;
+  }
+}
+@keyframes gt-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+@keyframes gt-rise {
+  from {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+@keyframes gt-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.gt-breathe {
+  animation: gt-breathe 2.6s var(--spring) infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.gt-ripple {
+  animation: gt-ripple 2.2s var(--spring) infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.gt-flow {
+  animation: gt-flow 2.4s linear infinite;
+}
+.gt-orbit {
+  animation: gt-orbit 7s linear infinite;
+  transform-box: view-box;
+  transform-origin: center;
+}
+.gt-orbit-rev {
+  animation: gt-orbit-rev 11s linear infinite;
+  transform-box: view-box;
+  transform-origin: center;
+}
+.gt-draw {
+  stroke-dasharray: var(--len, 60);
+  animation: gt-draw 0.7s var(--spring) forwards;
+}
+.gt-pop {
+  animation: gt-pop 0.6s var(--bounce) both;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.gt-float {
+  animation: gt-float 3.2s ease-in-out infinite;
+}
+.gt-rise {
+  animation: gt-rise 0.45s var(--spring) both;
+}
+.gt-fade {
+  animation: gt-fade 0.25s var(--spring) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gt-breathe,
+  .gt-ripple,
+  .gt-flow,
+  .gt-orbit,
+  .gt-orbit-rev,
+  .gt-float {
+    animation: none;
+  }
+  .gt-draw,
+  .gt-pop,
+  .gt-rise,
+  .gt-fade {
+    animation-duration: 0.01ms;
+  }
+}

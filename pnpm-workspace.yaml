@@ -1,0 +1,14 @@
+packages:
+  - apps/*
+  - packages/*
+
+# 只允许这些依赖执行安装脚本；其余可选原生模块都有预编译包或纯 JS 退路
+allowBuilds:
+  '@parcel/watcher': false
+  '@prisma/engines': true
+  cpu-features: false
+  esbuild: true
+  prisma: true
+  protobufjs: false
+  ssh2: false
+  unrs-resolver: true

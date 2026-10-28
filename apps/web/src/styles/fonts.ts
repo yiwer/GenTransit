@@ -1,0 +1,15 @@
+// 字体自托管（@fontsource）：内网部署也能用。中文字体按 unicode-range 分片，只下载页面用到的字
+import '@fontsource/plus-jakarta-sans/400.css'
+import '@fontsource/plus-jakarta-sans/500.css'
+import '@fontsource/plus-jakarta-sans/600.css'
+import '@fontsource/plus-jakarta-sans/700.css'
+import '@fontsource/noto-sans-sc/400.css'
+import '@fontsource/noto-sans-sc/500.css'
+import '@fontsource/noto-sans-sc/600.css'
+import '@fontsource/noto-sans-sc/700.css'
+// 衬线体只用 600、700 两档
+import '@fontsource/noto-serif-sc/600.css'
+import '@fontsource/noto-serif-sc/700.css'
+import '@fontsource/barlow-condensed/600.css'
+import '@fontsource/barlow-condensed/700.css'
+import '@fontsource/jetbrains-mono/400.css'

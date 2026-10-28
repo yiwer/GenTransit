@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "m0-prototype",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "prototype", "dev"],
+      "port": 5180
+    },
+    {
+      "name": "gt-server",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-F", "@gentransit/server", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "gt-web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["-F", "@gentransit/web", "dev"],
+      "port": 5173
+    }
+  ]
+}

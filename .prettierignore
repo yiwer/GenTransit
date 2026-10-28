@@ -1,0 +1,13 @@
+node_modules
+dist
+dist-dev
+coverage
+prototype
+docs
+*.md
+pnpm-lock.yaml
+apps/server/src/generated
+apps/server/prisma/migrations
+apps/web/playwright-report
+apps/web/test-results
+.claude
