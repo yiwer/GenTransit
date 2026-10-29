@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { BackupStatus } from '@gentransit/shared'
+import type { BackupStatus, SystemTotals } from '@gentransit/shared'
 import { BackupStatusService } from '../src/system/backup-status.service'
 import type { Env } from '../src/config/env'
 import { createTestApp } from './helpers'
@@ -99,6 +99,24 @@ describe('备份状态（M4 T6）', () => {
       const api = await t.login()
       const r = await api.get('/api/system/backup').expect(200)
       expect(r.body).toMatchObject({ configured: true, alert: 'stale' })
+    } finally {
+      await t.close()
+    }
+  })
+})
+
+describe('工作台总数', () => {
+  it('站点、线路、站牌总数；需要登录会话', async () => {
+    const t = await createTestApp()
+    try {
+      await t.reset()
+      await t.anon().get('/api/system/totals').expect(401)
+      const api = await t.login()
+      expect((await api.get('/api/system/totals').expect(200)).body).toEqual({ stops: 0, lines: 0, boards: 0 })
+      await api.post('/api/stops').send({ name: '总数站', direction: '东', lng: 120.2, lat: 30.25 }).expect(201)
+      await api.post('/api/stops').send({ name: '总数站', direction: '西', lng: 120.21, lat: 30.25 }).expect(201)
+      const r: SystemTotals = (await api.get('/api/system/totals').expect(200)).body
+      expect(r).toEqual({ stops: 2, lines: 0, boards: await t.prisma.board.count() })
     } finally {
       await t.close()
     }

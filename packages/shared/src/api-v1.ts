@@ -458,3 +458,10 @@ export interface BackupStatus {
 
 /** 备份超过多久算过期（毫秒） */
 export const BACKUP_STALE_MS = 48 * 3600 * 1000
+
+/** 工作台的总数：站点、线路、站牌（所有站牌集里的站牌块数） */
+export interface SystemTotals {
+  stops: number
+  lines: number
+  boards: number
+}

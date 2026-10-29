@@ -1,4 +1,5 @@
 // 工作台（需求 5.2，M3 计划 4.4）：暖纸底，一屏三块——待处理（主角）、最近修改（时间轴）、快捷新建；
+// 页头右侧是站点、线路、站牌总数；
 // 备份过期或失败时顶部一条赭石色提醒（M4 计划 5.5 节）。
 // 不做成通用卡片仪表盘：待处理用衬线大数字加赭石呼吸点；最近修改沿用修改历史的轨道与圆点
 import {
@@ -9,6 +10,7 @@ import {
   STOP_DIFF_SPEC,
   type ObjectType,
   type RecentChange,
+  type SystemTotals,
 } from '@gentransit/shared'
 import { useQuery } from '@tanstack/react-query'
 import { ArrowRight, Bus, MapPin, Plus } from 'lucide-react'
@@ -237,6 +239,80 @@ function Recent() {
   )
 }
 
+/* 总数旁的手绘小图：站杆、线路牌、带立柱的站牌 */
+const glyph = {
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.5,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+} as const
+const TOTAL_GLYPHS: Record<keyof SystemTotals, ReactNode> = {
+  stops: (
+    <svg viewBox="0 0 28 28" width={28} height={28} aria-hidden="true">
+      <ellipse cx="14" cy="25" rx="6" ry="1.6" fill="var(--ink)" fillOpacity="0.08" />
+      <line x1="14" y1="24" x2="14" y2="12" {...glyph} />
+      <circle cx="14" cy="8" r="5.5" {...glyph} fill="var(--surface)" />
+      <circle cx="14" cy="8" r="2" fill="var(--coral)" />
+    </svg>
+  ),
+  lines: (
+    <svg viewBox="0 0 28 28" width={28} height={28} aria-hidden="true">
+      <path d="M3 20 C 8 20, 8 8, 14 8 S 20 20, 25 20" {...glyph} strokeDasharray="1 3.2" />
+      <circle cx="3.5" cy="20" r="2.2" fill="var(--plate)" />
+      <circle cx="24.5" cy="20" r="2.2" fill="var(--surface)" stroke="var(--plate)" strokeWidth={1.5} />
+      <rect x="9" y="3" width="10" height="7" rx="2" fill="var(--plate)" />
+    </svg>
+  ),
+  boards: (
+    <svg viewBox="0 0 28 28" width={28} height={28} aria-hidden="true">
+      <ellipse cx="14" cy="25.5" rx="9" ry="1.4" fill="var(--ink)" fillOpacity="0.08" />
+      <line x1="8" y1="25" x2="8" y2="18" {...glyph} />
+      <line x1="20" y1="25" x2="20" y2="18" {...glyph} />
+      <rect x="4" y="3" width="20" height="16" rx="2.5" {...glyph} fill="var(--surface)" />
+      <rect x="4" y="3" width="20" height="4" rx="2" fill="var(--plate)" />
+      <line x1="8" y1="11" x2="20" y2="11" {...glyph} strokeWidth={1.2} />
+      <line x1="8" y1="15" x2="16" y2="15" {...glyph} strokeWidth={1.2} />
+    </svg>
+  ),
+}
+
+const TOTALS: { key: keyof SystemTotals; to: string; label: string }[] = [
+  { key: 'stops', to: '/stops', label: '站点' },
+  { key: 'lines', to: '/lines', label: '线路' },
+  { key: 'boards', to: '/sign-sets', label: '站牌' },
+]
+
+/** 页头右侧的总数：衬线数字配手绘小图，虚线分隔；点击进入对应列表 */
+function Totals() {
+  const q = useQuery({ queryKey: ['system', 'totals'], queryFn: () => get<SystemTotals>('/api/system/totals') })
+  return (
+    <nav aria-label="总数" className="flex items-stretch">
+      {TOTALS.map((x, i) => (
+        <Link
+          key={x.key}
+          to={x.to}
+          data-testid={`home-total-${x.key}`}
+          className={cn(
+            'group flex items-center gap-3 px-6 last:pr-0',
+            i > 0 && 'border-l border-dashed border-hairline-2',
+          )}
+        >
+          <span className="text-ink-3 transition-transform duration-300 ease-[var(--spring)] group-hover:-translate-y-0.5 group-hover:text-accent">
+            {TOTAL_GLYPHS[x.key]}
+          </span>
+          <span className="flex flex-col">
+            <span className="font-display text-[28px] font-semibold leading-none tabular-nums text-ink">
+              {q.data ? q.data[x.key].toLocaleString('zh-CN') : '—'}
+            </span>
+            <span className="mt-1 text-[12px] text-ink-3 group-hover:text-accent">{x.label}总数</span>
+          </span>
+        </Link>
+      ))}
+    </nav>
+  )
+}
+
 function Quick({ to, icon, title, sub }: { to: string; icon: ReactNode; title: string; sub: string }) {
   return (
     <Link
@@ -259,11 +335,14 @@ export function HomePage() {
   const now = new Date()
   return (
     <div className="flex h-full flex-col bg-[radial-gradient(ellipse_at_top_left,var(--surface)_0%,var(--surface-2)_45%,var(--paper)_120%)]">
-      <div className="px-10 pb-2 pt-8">
-        <h1 className="font-display text-[26px] font-semibold leading-9">工作台</h1>
-        <p className="text-[13px] text-ink-3">
-          {now.getFullYear()} 年 {now.getMonth() + 1} 月 {now.getDate()} 日 · 星期{WEEK[now.getDay()]}
-        </p>
+      <div className="flex items-end justify-between gap-8 px-10 pb-2 pt-8">
+        <div>
+          <h1 className="font-display text-[26px] font-semibold leading-9">工作台</h1>
+          <p className="text-[13px] text-ink-3">
+            {now.getFullYear()} 年 {now.getMonth() + 1} 月 {now.getDate()} 日 · 星期{WEEK[now.getDay()]}
+          </p>
+        </div>
+        <Totals />
       </div>
       <BackupAlert />
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-12 px-10 pb-8 pt-4">

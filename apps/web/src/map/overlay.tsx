@@ -1,6 +1,8 @@
-// 自绘 SVG 覆盖层：线路走向、站点、选中涟漪、地标辐射圈、定位标记。高德底图与示意平面共用
+// 自绘 SVG 覆盖层：线路走向、站点、选中涟漪、地标辐射圈、定位标记。高德底图与示意平面共用。
+// 站名（方位）标注按 labels.ts 避让，互不重叠
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { cn } from '@/lib/utils'
+import { layoutLabels, textWidth, type LabelInput } from './labels'
 import type { MapCircle, MapPoint, MapRoute } from './types'
 
 type Px = [number, number]
@@ -101,9 +103,48 @@ export interface OverlayProps {
 const sparkle = (cx: number, cy: number, r: number) =>
   `M ${cx} ${cy - r} C ${cx + 0.6} ${cy - 0.6}, ${cx + 0.6} ${cy - 0.6}, ${cx + r} ${cy} C ${cx + 0.6} ${cy + 0.6}, ${cx + 0.6} ${cy + 0.6}, ${cx} ${cy + r} C ${cx - 0.6} ${cy + 0.6}, ${cx - 0.6} ${cy + 0.6}, ${cx - r} ${cy} C ${cx - 0.6} ${cy - 0.6}, ${cx - 0.6} ${cy - 0.6}, ${cx} ${cy - r} Z`
 
+/** 圆点半径：和下面画圆点的尺寸一致，标注据此贴边避让 */
+const dotRadius = (s: MapPoint, sel: boolean, big: boolean) => (s.badge ? (sel ? 11 : 9) : sel ? 8 : big ? 6 : 4.8)
+
+let displayFont: string | undefined
+const fontFamily = () =>
+  (displayFont ??= getComputedStyle(document.documentElement).getPropertyValue('--font-display').trim() || 'serif')
+
+/** 站名（方位）标注的框尺寸与避让布局；showLabels 为 false 时只标选中和悬停的站点 */
+function labelLayout(p: OverlayProps, emph: Set<string>) {
+  const inputs: LabelInput[] = []
+  for (const s of p.points) {
+    const sel = s.id === p.selectedId
+    const hov = s.id === p.hoverId
+    if (!p.showLabels && !sel && !hov) continue
+    const [x, y] = p.toPx(s.lng, s.lat)
+    const size = sel ? 14 : 12.5
+    const w =
+      textWidth(s.label, size, sel ? 700 : 600, fontFamily()) +
+      (s.sub ? textWidth(`（${s.sub}）`, size, 400, fontFamily()) : 0)
+    inputs.push({
+      id: s.id,
+      x,
+      y,
+      r: dotRadius(s, sel, emph.has(s.id) || hov),
+      w: w + LABEL_HALO * 2,
+      h: size * LINE_BOX + LABEL_HALO,
+      priority: sel ? 3 : hov ? 2 : emph.has(s.id) ? 1 : 0,
+    })
+  }
+  return layoutLabels(inputs)
+}
+
+/** 标注描边光晕的宽度（框的左右各留这么多，上下各留一半） */
+const LABEL_HALO = 2
+/** 实测（浏览器里 SVG 文字的外框）：字框高 1.44 个字号，顶边在基线以上 1.12 个字号 */
+const LINE_BOX = 1.44
+const ASCENT = 1.12
+
 export function MapOverlay(p: OverlayProps) {
   const emph = new Set(p.emphasizeIds ?? [])
   const hasEmph = emph.size > 0
+  const labels = labelLayout(p, emph)
   return (
     <svg className="pointer-events-none absolute inset-0 size-full overflow-hidden" aria-hidden="true">
       {p.circles.map((c) => {
@@ -187,7 +228,7 @@ export function MapOverlay(p: OverlayProps) {
                 <circle
                   cx={x}
                   cy={y}
-                  r={sel ? 11 : 9}
+                  r={dotRadius(s, sel, false)}
                   fill={sel ? 'var(--plate)' : 'var(--surface)'}
                   stroke="var(--plate)"
                   strokeWidth={sel ? 2.5 : 1.8}
@@ -209,7 +250,7 @@ export function MapOverlay(p: OverlayProps) {
                 <circle
                   cx={x}
                   cy={y}
-                  r={sel ? 8 : em || hov ? 6 : 4.8}
+                  r={dotRadius(s, sel, em || hov)}
                   fill={sel ? 'var(--plate)' : 'var(--surface)'}
                   stroke={sel || em ? 'var(--plate)' : 'var(--ink-2)'}
                   strokeWidth={sel ? 3 : em ? 2.2 : 1.6}
@@ -217,10 +258,10 @@ export function MapOverlay(p: OverlayProps) {
                 {sel && <circle cx={x} cy={y} r={2.6} fill="var(--coral)" />}
               </>
             )}
-            {(p.showLabels || sel || hov) && (
+            {labels.has(s.id) && (
               <text
-                x={x + 11}
-                y={y - 8}
+                x={labels.get(s.id)!.left + LABEL_HALO}
+                y={labels.get(s.id)!.top + LABEL_HALO / 2 + (sel ? 14 : 12.5) * ASCENT}
                 fontSize={sel ? 14 : 12.5}
                 fontWeight={sel ? 700 : 600}
                 fill="var(--ink)"

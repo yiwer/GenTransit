@@ -227,7 +227,7 @@ export function PlaneMap({
         selectedId={selectedId}
         hoverId={hoverId ?? hoverLocal}
         emphasizeIds={emphasizeIds}
-        showLabels={view.mpp < 2.5}
+        showLabels={view.mpp < 4.2}
         onSelect={onSelect}
         onOpen={onOpen}
         onHover={onHover ?? setHoverLocal}
