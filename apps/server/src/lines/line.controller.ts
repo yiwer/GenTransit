@@ -1,9 +1,11 @@
 import { Body, Controller, Delete, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common'
 import {
+  lineImpactQuery,
   lineInput,
   lineListQuery,
   lineUpdateInput,
   revInput,
+  type LineImpactQuery,
   type LineInput,
   type LineListQuery,
   type LineUpdateInput,
@@ -44,6 +46,11 @@ export class LineController {
   @Get(':id/transfers')
   transfers(@Param('id', ParseUUIDPipe) id: string, @Query(new ZodPipe(routeQuery)) q: z.infer<typeof routeQuery>) {
     return this.svc.transfers(id, q.routeId)
+  }
+
+  @Get(':id/impact')
+  impact(@Param('id', ParseUUIDPipe) id: string, @Query(new ZodPipe(lineImpactQuery)) q: LineImpactQuery) {
+    return this.svc.impact(id, q.kinds)
   }
 
   @Get(':id/delete-check')

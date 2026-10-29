@@ -11,6 +11,7 @@ import {
   passIndices,
   type LineDeleteCheck,
   type LineDetail,
+  type LineImpact,
   type LineInput,
   type LineListItem,
   type LineListQuery,
@@ -512,6 +513,21 @@ export class LineService {
       stops: new Set(l.routes.flatMap((r) => r.stops.map((s) => s.stopId))).size,
       affectedSignSets: await this.hook.countAffected(l.routes.map((r) => r.id)),
     }
+  }
+
+  /**
+   * 停运、恢复、删除、改模式的确认弹窗（默认决定 14）：经过的站点数、受影响的站牌集数与编排数。
+   * kinds：只统计将删除的走向（改模式，AC-16）
+   */
+  async impact(id: string, kinds?: RouteKind[]): Promise<LineImpact> {
+    const l = await this.prisma.line.findUnique({
+      where: { id },
+      select: { routes: { select: { id: true, kind: true, stops: { select: { stopId: true } } } } },
+    })
+    if (!l) throw notFound('线路')
+    const routes = kinds ? l.routes.filter((r) => kinds.includes(r.kind)) : l.routes
+    const a = await this.hook.affected(routes.map((r) => r.id))
+    return { stops: new Set(routes.flatMap((r) => r.stops.map((s) => s.stopId))).size, ...a }
   }
 
   /** 删除线路：连同全部走向与站序；调用 M3 接口处理编排；线路自身存一份"删除"快照 */

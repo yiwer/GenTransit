@@ -1,4 +1,4 @@
-// 基础数据（5.7）：七类字典、行政区划（市 → 区 → 街道）、公交公司；站架模板在 M3
+// 基础数据（5.7）：七类字典、行政区划（市 → 区 → 街道）、公交公司、站架模板（M3）
 import {
   DICT_CATEGORIES,
   DICT_CATEGORY_LABEL,
@@ -24,6 +24,7 @@ import { Input } from '@/components/ui/input'
 import { keys, useCompanies, useDicts, useRegions } from '@/features/common/data'
 import { del, isApiError, post, put, uploadFile } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { ShelfTemplatesTab } from './ShelfTemplatesTab'
 
 const TABS = [
   { to: 'dicts', label: '字典' },
@@ -63,9 +64,7 @@ export function BaseDataPage() {
         {tab === 'dicts' && <DictTab />}
         {tab === 'regions' && <RegionTab />}
         {tab === 'companies' && <CompanyTab />}
-        {tab === 'shelf-templates' && (
-          <div className="p-10 text-center text-[13.5px] text-ink-3">站架模板随站牌集编辑器在 M3 实现。</div>
-        )}
+        {tab === 'shelf-templates' && <ShelfTemplatesTab />}
       </div>
     </div>
   )

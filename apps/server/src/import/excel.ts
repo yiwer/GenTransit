@@ -82,8 +82,8 @@ export interface ColumnSpec {
 export interface SheetSpec {
   name: string
   columns: ColumnSpec[]
-  /** 数据行：字符串原样写；数字写成数值；null / '' 写空单元格 */
-  rows: Iterable<(string | number | null)[]>
+  /** 数据行：字符串原样写；数字写成数值；null / '' 写空单元格。可以是异步迭代（分批读库） */
+  rows: Iterable<(string | number | null)[]> | AsyncIterable<(string | number | null)[]>
 }
 
 const HEADER_FILL: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3EEE5' } }
@@ -103,7 +103,7 @@ export async function writeWorkbook(out: Writable, sheets: SheetSpec[], notes?: 
     head.font = { bold: true }
     head.fill = HEADER_FILL
     head.commit()
-    for (const r of s.rows) ws.addRow(r.map((v) => (v === '' ? null : v))).commit()
+    for await (const r of s.rows) ws.addRow(r.map((v) => (v === '' ? null : v))).commit()
     ws.commit()
   }
   if (notes?.length) {

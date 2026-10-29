@@ -10,6 +10,7 @@ describe('线路（T2）', () => {
   const hook: RouteRemovalHook = {
     onRoutesRemoved: async (_tx, input) => void removed.push(input),
     countAffected: async () => 0,
+    affected: async () => ({ signSets: 0, schedules: 0 }),
   }
   let s: Record<string, { id: string }>
 

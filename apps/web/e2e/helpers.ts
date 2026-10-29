@@ -6,7 +6,7 @@ export async function login(page: Page) {
   await page.getByLabel('用户名').fill(E2E_ADMIN.username)
   await page.getByLabel('密码').fill(E2E_ADMIN.password)
   await page.getByRole('button', { name: '登录' }).click()
-  await expect(page).toHaveURL(/\/stops$/)
+  await expect(page).toHaveURL(/\/home$/)
 }
 
 /** 用当前登录会话直接调接口建站点（测试准备数据） */

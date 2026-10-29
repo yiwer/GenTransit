@@ -52,15 +52,6 @@ export interface StopSnapshotV1 {
   ext: Record<string, ExtSnapshotValue>
 }
 
-/** 站牌集快照（M1 只有空站牌集；站架、站牌、插片、编排在 M3 填充） */
-export interface SignSetSnapshotV1 {
-  schema: 1
-  stop: Ref
-  reminder: string
-  shelves: unknown[]
-  schedules: unknown[]
-}
-
 const ref = (r: Ref | null): Ref | null => (r ? { id: r.id, name: r.name } : null)
 
 export type StopSnapshotSource = Pick<
@@ -122,10 +113,6 @@ export function stopSnapshot(
     photos: s.photos.map((p) => ({ id: p.id, name: p.originalName })),
     ext,
   }
-}
-
-export function signSetSnapshot(stop: Ref): SignSetSnapshotV1 {
-  return { schema: 1, stop: { id: stop.id, name: stop.name }, reminder: '', shelves: [], schedules: [] }
 }
 
 /* ---------- 规范化 ---------- */
@@ -198,8 +185,18 @@ export type DiffField =
   /** format：把代码值显示成中文（如模式、状态） */
   | { path: string; label: string; kind?: 'value'; format?: (v: unknown) => string }
   | { path: string; label: string; kind: 'set' }
-  /** labelPath：列表项的显示名取自哪个字段（如路径站的 stop.name） */
-  | { path: string; label: string; kind: 'list'; labelPath?: string }
+  /**
+   * 列表。labelPath：显示名取自哪个字段（如路径站的 stop.name）；
+   * items：从整份快照取出要比较的数组（如把各站架的站牌摊平），不传则取 path；labelOf：自定义显示名
+   */
+  | {
+      path: string
+      label: string
+      kind: 'list'
+      labelPath?: string
+      items?: (snapshot: unknown) => unknown[]
+      labelOf?: (item: unknown) => string
+    }
   | { path: string; label: string; kind: 'ext' }
 
 export type DiffItemOp = 'added' | 'removed' | 'moved' | 'changed'
@@ -254,9 +251,14 @@ function lisIndices(seq: number[]): Set<number> {
   return keep
 }
 
-/** 有序列表的差异：按 id 对齐，输出增、删、移动、修改；labelPath 指定显示名所在字段 */
-export function diffList(prev: unknown[], next: unknown[], labelPath?: string): { op: DiffItemOp; label: string }[] {
-  const display = (x: unknown) => displayValue(labelPath ? get(x, labelPath) : x)
+/** 有序列表的差异：按 id 对齐，输出增、删、移动、修改；labelPath 或 labelOf 指定显示名 */
+export function diffList(
+  prev: unknown[],
+  next: unknown[],
+  labelPath?: string,
+  labelOf?: (item: unknown) => string,
+): { op: DiffItemOp; label: string }[] {
+  const display = (x: unknown) => (labelOf ? labelOf(x) : displayValue(labelPath ? get(x, labelPath) : x))
   const out: { op: DiffItemOp; label: string }[] = []
   const prevIds = prev.map(idOf)
   const nextIds = next.map(idOf)
@@ -281,8 +283,8 @@ export function diffSnapshots(prev: unknown, next: unknown, spec: DiffField[]): 
   if (!prev || !next) return []
   const out: DiffEntry[] = []
   for (const f of spec) {
-    const a = get(prev, f.path)
-    const b = get(next, f.path)
+    const a = f.kind === 'list' && f.items ? f.items(prev) : get(prev, f.path)
+    const b = f.kind === 'list' && f.items ? f.items(next) : get(next, f.path)
     if (f.kind === 'set' || f.kind === 'list') {
       const pa = Array.isArray(a) ? a : []
       const pb = Array.isArray(b) ? b : []
@@ -296,7 +298,7 @@ export function diffSnapshots(prev: unknown, next: unknown, spec: DiffField[]): 
                 .filter((x) => !pa.some((y) => idOf(y) === idOf(x)))
                 .map((x) => ({ op: 'added' as const, label: display(x) })),
             ]
-          : diffList(pa, pb, f.labelPath)
+          : diffList(pa, pb, f.labelPath, f.labelOf)
       if (items.length) out.push({ kind: 'items', label: f.label, items })
     } else if (f.kind === 'ext') {
       const ea = isPlain(a) ? (a as Record<string, ExtSnapshotValue>) : {}
@@ -344,12 +346,6 @@ export const STOP_DIFF_SPEC: DiffField[] = [
   { path: 'landmarks', label: '地标', kind: 'set' },
   { path: 'photos', label: '照片', kind: 'list' },
   { path: 'ext', label: '扩展字段', kind: 'ext' },
-]
-
-export const SIGN_SET_DIFF_SPEC: DiffField[] = [
-  { path: 'reminder', label: '温馨提示' },
-  { path: 'shelves', label: '站架', kind: 'list' },
-  { path: 'schedules', label: '线路编排', kind: 'list' },
 ]
 
 /** 改动了哪些字段（标签列表），用于"未保存：改了哪些字段"和快照说明 */

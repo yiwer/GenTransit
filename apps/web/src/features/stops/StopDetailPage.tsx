@@ -14,15 +14,17 @@ import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { ReferrerList } from '@/components/gt/confirm'
 import { HistoryButton } from '@/components/gt/history'
-import { EmptyShelfArt, OrbitLoader } from '@/components/gt/lively'
+import { OrbitLoader } from '@/components/gt/lively'
 import { Prop, Val } from '@/components/gt/prop'
 import { SplitView } from '@/components/gt/split-view'
-import { DirBadge, RoutePlate, SectionTitle, Tag } from '@/components/gt/symbols'
+import { DirBadge, RoutePlate, SectionTitle, StatusChip, Tag } from '@/components/gt/symbols'
 import { useToast } from '@/components/gt/toast'
 import { Button, IconButton } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/dropdown-menu'
 import { useExtFields, useLandmarks } from '@/features/common/data'
+import { useSignSet } from '@/features/sign-sets/data'
+import { SignSetGlance } from '@/features/sign-sets/SignSetPreview'
 import { del, get, isApiError } from '@/lib/api'
 import { fmtDateTime } from '@/lib/utils'
 import { MapView } from '@/map/MapView'
@@ -98,7 +100,7 @@ function Detail({ stop }: { stop: StopDetail }) {
           <Button onClick={() => nav(`/stops/${stop.id}/edit`)}>
             <Pencil size={14} /> 编辑
           </Button>
-          <Button variant="primary" disabled title="站牌集编辑器在 M3 实现">
+          <Button variant="primary" onClick={() => nav(`/sign-sets/${stop.id}`)}>
             <Signpost size={14} /> 站牌集
           </Button>
           <Menu>
@@ -177,23 +179,7 @@ function Detail({ stop }: { stop: StopDetail }) {
           </ul>
         </section>
 
-        <section className="mb-8">
-          <SectionTitle
-            extra={
-              <Button size="sm" variant="ghost" disabled title="站牌集编辑器在 M3 实现">
-                打开编辑器 <ArrowUpRight size={13} />
-              </Button>
-            }
-          >
-            站牌集
-          </SectionTitle>
-          <div className="flex items-center gap-4 rounded-2xl bg-surface-2 p-4 ring-1 ring-hairline">
-            <EmptyShelfArt className="h-[72px] w-[96px]" />
-            <div className="text-[13px] text-ink-3">
-              还没有站架。站牌集随站点一起建好了，站架、站牌与线路编排在站牌集编辑器里维护（M3）。
-            </div>
-          </div>
-        </section>
+        <SignSetSection stop={stop} onOpen={() => nav(`/sign-sets/${stop.id}`)} />
 
         <section className="mb-8">
           <SectionTitle>位置</SectionTitle>
@@ -378,4 +364,39 @@ function ExtProps({ fields, values }: { fields: ExtFieldDef[]; values: Record<st
       <Val>{formatExtValue(values[f.key])}</Val>
     </Prop>
   ))
+}
+
+/** "站牌集"一节：紧凑比例的只读立面加计数；按钮"编排"进编辑器；没有站架时显示空状态插画 */
+function SignSetSection({ stop, onOpen }: { stop: StopDetail; onOpen: () => void }) {
+  const ss = useSignSet(stop.id)
+  const c = stop.signSet
+  return (
+    <section className="mb-8">
+      <SectionTitle
+        count={c.shelves ? `${c.shelves} 个站架 · ${c.boards} 块站牌` : undefined}
+        extra={
+          <Button size="sm" variant={c.waiting + c.invalid ? 'primary' : 'ghost'} onClick={onOpen}>
+            <Signpost size={13} /> 编排
+          </Button>
+        }
+      >
+        站牌集
+      </SectionTitle>
+      {(c.waiting > 0 || c.invalid > 0) && (
+        <div className="mb-2 flex items-center gap-1.5">
+          {c.waiting > 0 && <StatusChip status="待编排" count={c.waiting} size="sm" />}
+          {c.invalid > 0 && <StatusChip status="失效" count={c.invalid} size="sm" />}
+        </div>
+      )}
+      <div className="overflow-hidden rounded-2xl bg-[radial-gradient(ellipse_at_top,var(--surface)_0%,var(--surface-2)_60%,var(--sunken)_140%)] ring-1 ring-hairline">
+        {ss.data ? (
+          <SignSetGlance view={ss.data} zoom="compact" />
+        ) : (
+          <div className="flex items-center gap-2 p-6 text-[13px] text-ink-3">
+            <OrbitLoader size={18} /> 正在读取站牌集…
+          </div>
+        )}
+      </div>
+    </section>
+  )
 }

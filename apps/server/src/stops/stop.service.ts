@@ -7,7 +7,6 @@ import {
   compareLineName,
   isDirection,
   roundCoord,
-  signSetSnapshot,
   stopLabel,
   stopSnapshot,
   type DeleteCheck,
@@ -30,6 +29,7 @@ import { stopReferrers } from '../common/referrers'
 import type { Prisma } from '../generated/prisma/client'
 import { PrismaService, type Tx } from '../prisma/prisma.service'
 import { SettingsService } from '../settings/settings.service'
+import { SignSetService } from '../sign-sets/sign-set.service'
 import { SnapshotService } from '../snapshots/snapshot.service'
 import { UploadService } from '../uploads/upload.service'
 
@@ -74,6 +74,7 @@ export class StopService {
     private readonly snapshots: SnapshotService,
     private readonly settings: SettingsService,
     private readonly uploads: UploadService,
+    private readonly signSets: SignSetService,
   ) {}
 
   /* ---------------- 读取 ---------------- */
@@ -93,7 +94,7 @@ export class StopService {
       },
     })
     const snapshotCount = await db.snapshot.count({ where: { objectType: 'stop', objectId: id } })
-    return this.toDetail(s, routes, snapshotCount)
+    return this.toDetail(s, routes, snapshotCount, await this.signSets.brief(db, s.signSet?.id))
   }
 
   toDetail(
@@ -105,6 +106,7 @@ export class StopService {
       stops: { stop: { name: string; lng: number; lat: number } }[]
     }[],
     snapshotCount: number,
+    signSet: StopDetail['signSet'] = { id: s.signSet?.id ?? '', shelves: 0, boards: 0, waiting: 0, invalid: 0 },
   ): StopDetail {
     return {
       id: s.id,
@@ -147,8 +149,7 @@ export class StopService {
           path: r.stops.map((x) => [x.stop.lng, x.stop.lat] as [number, number]),
         }))
         .sort((a, b) => compareLineName(a.lineName, b.lineName) || a.routeKind.localeCompare(b.routeKind)),
-      // 站牌集的站架、站牌与编排状态在 M3 计算
-      signSet: { id: s.signSet?.id ?? '', shelves: 0, boards: 0, waiting: 0, invalid: 0 },
+      signSet,
       snapshotCount,
       createdAt: s.createdAt.toISOString(),
       updatedAt: s.updatedAt.toISOString(),
@@ -374,7 +375,7 @@ export class StopService {
         id: detail.signSet.id,
         name,
         action: 'create',
-        content: signSetSnapshot({ id: stop.id, name }),
+        content: (await this.signSets.contents(tx, [detail.signSet.id])).get(detail.signSet.id),
       })
       return { changed: true, item: { ...detail, snapshotCount: 1 } }
     })
@@ -431,7 +432,7 @@ export class StopService {
     return { canDelete: refs.total === 0, referrers: refs.referrers }
   }
 
-  /** 删除站点：仍被路径站引用时拒绝并列出线路与走向（AC-09）；连带删除站牌集，两者各存一份"删除"快照 */
+  /** 删除站点：仍被路径站引用时拒绝并列出线路与走向（AC-09）；连带删除站牌集，两者各存一份"删除"快照（站牌集为完整内容） */
   async remove(id: string) {
     await this.prisma.$transaction(async (tx) => {
       const detail = await this.detail(tx, id)
@@ -446,7 +447,7 @@ export class StopService {
           id: detail.signSet.id,
           name,
           action: 'delete',
-          content: signSetSnapshot({ id, name }),
+          content: (await this.signSets.contents(tx, [detail.signSet.id])).get(detail.signSet.id),
         })
       await tx.stop.delete({ where: { id } })
     })

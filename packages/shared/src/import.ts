@@ -58,6 +58,9 @@ export interface ImportRemovedRoutes {
   key: string
   name: string
   routes: string[]
+  /** 这些走向在多少个站牌集里有编排、共几条（确认后删除，默认决定 15） */
+  signSets?: number
+  schedules?: number
 }
 
 export interface ImportPreview {

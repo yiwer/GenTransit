@@ -1,16 +1,9 @@
-import { expect, test, type Page } from '@playwright/test'
-import { E2E_ADMIN } from './env'
-
-async function login(page: Page) {
-  await page.goto('/login')
-  await page.getByLabel('用户名').fill(E2E_ADMIN.username)
-  await page.getByLabel('密码').fill(E2E_ADMIN.password)
-  await page.getByRole('button', { name: '登录' }).click()
-  await expect(page).toHaveURL(/\/stops$/)
-}
+import { expect, test } from '@playwright/test'
+import { login } from './helpers'
 
 test('登录 → 地图点选新建站点 → 详情 → 修改历史里有"新增"；原样保存不产生快照', async ({ page }) => {
   await login(page)
+  await page.goto('/stops')
   await page.getByRole('button', { name: '新建' }).click()
   await expect(page).toHaveURL(/\/stops\/new$/)
 

@@ -401,7 +401,9 @@ describe('导入导出（T5～T7）', () => {
 
       const buf = await workbookBuffer([sheet('线路', LINE_HEADER, [['K-1', 'K1路', null, '单向']])])
       const job2 = await upload('line', buf)
-      expect(job2.preview.removedRoutes).toEqual([{ key: 'K-1', name: 'K1路', routes: ['下行'] }])
+      expect(job2.preview.removedRoutes).toEqual([
+        { key: 'K-1', name: 'K1路', routes: ['下行'], signSets: 0, schedules: 0 },
+      ])
       expect(job2.preview.updated[0].diff.map((d) => d.label)).toContain('线路模式')
       await confirm(job2.id)
       const l = (await api.get('/api/lines')).body.items[0]

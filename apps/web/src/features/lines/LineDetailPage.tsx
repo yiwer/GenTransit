@@ -7,6 +7,7 @@ import {
   TICKET_TYPE_LABEL,
   formatExtValue,
   type LineDeleteCheck,
+  type LineImpact,
   type LineDetail,
   type SaveResult,
 } from '@gentransit/shared'
@@ -66,6 +67,8 @@ function Detail({ line }: { line: LineDetail }) {
   const [focus, setFocus] = useState<number | null>(null)
   const [askStatus, setAskStatus] = useState(false)
   const [delCheck, setDelCheck] = useState<LineDeleteCheck | null>(null)
+  /** 停运、恢复、删除的确认弹窗写明受影响的站牌集数与编排数（默认决定 14） */
+  const [impact, setImpact] = useState<LineImpact | null>(null)
   const suspended = line.status === 'suspended'
   const stopCount = new Set(line.routes.flatMap((r) => r.stops.map((s) => s.stop.id))).size
   const focusStop = focus !== null ? route?.stops[focus] : undefined
@@ -78,6 +81,19 @@ function Detail({ line }: { line: LineDetail }) {
     await qc.invalidateQueries({ queryKey: ['lines'] })
     await qc.invalidateQueries({ queryKey: ['stops'] })
     await qc.invalidateQueries({ queryKey: ['snapshots', 'line', line.id] })
+    await qc.invalidateQueries({ queryKey: ['sign-sets'] })
+  }
+  const loadImpact = async () => {
+    try {
+      setImpact(await get<LineImpact>(`/api/lines/${line.id}/impact`))
+    } catch {
+      setImpact(null)
+    }
+  }
+  const openStatus = () => {
+    setImpact(null)
+    setAskStatus(true)
+    void loadImpact()
   }
   const toggleStatus = async () => {
     setAskStatus(false)
@@ -92,6 +108,8 @@ function Detail({ line }: { line: LineDetail }) {
   }
   const askDelete = async () => {
     try {
+      setImpact(null)
+      void loadImpact()
       setDelCheck(await get<LineDeleteCheck>(`/api/lines/${line.id}/delete-check`))
     } catch (e) {
       toast(isApiError(e) ? e.message : '无法检查影响', 'error')
@@ -127,7 +145,7 @@ function Detail({ line }: { line: LineDetail }) {
           <Button onClick={() => nav(`/lines/${line.id}/edit`)}>
             <Pencil size={14} /> 编辑
           </Button>
-          <Button variant={suspended ? 'primary' : 'secondary'} onClick={() => setAskStatus(true)}>
+          <Button variant={suspended ? 'primary' : 'secondary'} onClick={openStatus}>
             {suspended ? (
               <>
                 <Play size={14} /> 恢复运营
@@ -359,6 +377,7 @@ function Detail({ line }: { line: LineDetail }) {
             。线路数据保留，恢复运营后自动恢复。
           </p>
         )}
+        <ImpactNote impact={impact} verb={suspended ? '恢复为已编排' : '显示为失效（保留原位，不生成快照）'} />
       </Dialog>
       <Dialog
         open={Boolean(flow.conflict)}
@@ -392,12 +411,10 @@ function Detail({ line }: { line: LineDetail }) {
         }
       >
         <p>
-          会同时删除它的 {delCheck?.routes} 个走向与站序（涉及 {delCheck?.stops} 个站点）
-          {delCheck && delCheck.affectedSignSets > 0
-            ? `，并移除 ${delCheck.affectedSignSets} 个站牌集里的相关编排`
-            : ''}
-          。修改历史会保留，可在"已删除的线路"里查看。
+          会同时删除它的 {delCheck?.routes} 个走向与站序（涉及 {delCheck?.stops}{' '}
+          个站点）。修改历史会保留，可在"已删除的线路"里查看。
         </p>
+        <ImpactNote impact={impact} verb={'删除，每个站牌集各存一份"连带修改"快照'} />
       </Dialog>
     </div>
   )
@@ -465,5 +482,24 @@ function Detail({ line }: { line: LineDetail }) {
         />
       }
     />
+  )
+}
+
+/** 弹窗里的影响说明：N 个站牌集的 M 条编排将…… */
+function ImpactNote({ impact, verb }: { impact: LineImpact | null; verb: string }) {
+  if (!impact)
+    return (
+      <p className="mt-2 flex items-center gap-2 text-[12.5px] text-ink-3">
+        <OrbitLoader size={14} /> 正在统计站牌集…
+      </p>
+    )
+  if (!impact.schedules) return <p className="mt-2 text-[12.5px] text-ink-3">没有站牌集编排了这条线路。</p>
+  return (
+    <p
+      className="mt-2 rounded-xl bg-signal-soft/60 px-3 py-2 text-[13px] text-ink ring-1 ring-signal/25"
+      data-testid="impact-note"
+    >
+      <b>{impact.signSets}</b> 个站牌集的 <b>{impact.schedules}</b> 条编排将{verb}。
+    </p>
   )
 }

@@ -14,6 +14,18 @@ import {
 } from './enums'
 import { LINE_STATUSES, MODE_ROUTE_KINDS, SERVICE_TYPES, TICKET_TYPES, TIME_RE, timesInOrder } from './line'
 import { MAX_STOP_PHOTOS } from './enums'
+import {
+  BOARD_FACES,
+  BOARD_KINDS,
+  BOARD_NO_MAX,
+  PLACEMENTS,
+  REMINDER_MAX,
+  SHELF_NO_MAX,
+  SIZE_MAX_MM,
+  SLOT_KINDS,
+  SLOT_NO_MAX,
+  structureIssues,
+} from './sign-set'
 
 /** 英文名：只允许英文字母、数字、空格与常用标点 */
 export const EN_NAME_RE = /^[A-Za-z0-9 .,'()&\-/]*$/
@@ -271,3 +283,136 @@ export const stopMatchInput = z.object({
   rows: z.array(z.object({ name: z.string().trim().max(100), direction: z.string().trim().max(50) })).max(500),
 })
 export type StopMatchInput = z.infer<typeof stopMatchInput>
+
+/* ---------- 站牌集（M3） ---------- */
+
+const mm = z
+  .number()
+  .int('应为整数（毫米）')
+  .min(1, '应为正整数（毫米）')
+  .max(SIZE_MAX_MM, `不能超过 ${SIZE_MAX_MM} 毫米`)
+
+export const slotInput = z.object({
+  id: z.uuid(),
+  no: z.number().int().min(1, '插片编号从 1 起').max(SLOT_NO_MAX, `插片编号最大 ${SLOT_NO_MAX}`),
+  kind: z.enum(SLOT_KINDS),
+  note: text(50).default(''),
+  width: mm,
+  height: mm,
+})
+
+export const boardInput = z.object({
+  id: z.uuid(),
+  no: z.number().int().min(1, '站牌编号从 1 起').max(BOARD_NO_MAX, `站牌编号最大 ${BOARD_NO_MAX}`),
+  face: z.enum(BOARD_FACES),
+  kind: z.enum(BOARD_KINDS),
+  width: mm,
+  height: mm,
+  remark: text(200).default(''),
+  slots: z.array(slotInput).max(SLOT_NO_MAX).default([]),
+})
+
+export const shelfInput = z.object({
+  id: z.uuid(),
+  no: z.number().int().min(1, '站架编号从 1 起').max(SHELF_NO_MAX, `站架编号最大 ${SHELF_NO_MAX}`),
+  typeId: z.uuid('请选择站架类型'),
+  name: text(50).default(''),
+  desc: text(200).default(''),
+  noPhysical: z.boolean().default(false),
+  material: text(200).default(''),
+  boards: z.array(boardInput).max(BOARD_NO_MAX).default([]),
+})
+
+export const scheduleInput = z.object({
+  routeId: z.uuid(),
+  pass: z.number().int().min(1),
+  placement: z.enum(PLACEMENTS),
+  boardId: z.uuid().nullable().default(null),
+  slotId: z.uuid().nullable().default(null),
+  order: z.number().int().min(1).nullable().default(null),
+})
+
+/** 整个站牌集一次保存（BR-18）；结构与 BR-06、BR-07 在这里校验，途经相关规则在服务端按当前途经校验 */
+export const signSetInput = z
+  .object({
+    rev: z.number().int().positive(),
+    reminder: text(REMINDER_MAX).default(''),
+    shelves: z.array(shelfInput).max(SHELF_NO_MAX),
+    schedules: z.array(scheduleInput).max(2000),
+  })
+  .superRefine((v, ctx) => {
+    for (const i of structureIssues(v)) ctx.addIssue({ code: 'custom', path: i.path.split('.'), message: i.message })
+  })
+export type SignSetInput = z.infer<typeof signSetInput>
+export type SignSetInputRaw = z.input<typeof signSetInput>
+
+const csvUuids = z
+  .string()
+  .trim()
+  .optional()
+  .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
+  .pipe(z.array(z.uuid()).max(50).optional())
+
+export const signSetListQuery = z.object({
+  q: z.string().trim().max(100).optional(),
+  streetId: z.uuid().optional(),
+  roadId: z.uuid().optional(),
+  lineIds: csvUuids,
+  shelfTypeIds: csvUuids,
+  /** 站牌尺寸，如 1200x1800 */
+  boardSize: z
+    .string()
+    .trim()
+    .regex(/^\d{1,5}x\d{1,5}$/, '尺寸格式为 宽x高')
+    .optional(),
+  /** 只看待处理（有待编排或失效） */
+  pending: z
+    .enum(['1', '0', 'true', 'false'])
+    .optional()
+    .transform((v) => v === '1' || v === 'true'),
+  sort: z.enum(['name', '-pending', '-updatedAt']).default('name'),
+  ...pageQuery,
+})
+export type SignSetListQuery = z.infer<typeof signSetListQuery>
+
+export const templateSlotInput = slotInput.omit({ id: true })
+export const templateBoardInput = boardInput.omit({ id: true, no: true }).extend({
+  slots: z.array(templateSlotInput).max(SLOT_NO_MAX).default([]),
+})
+
+export const shelfTemplateInput = z
+  .object({
+    name: required(50),
+    typeId: z.uuid('请选择站架类型'),
+    desc: text(200).default(''),
+    noPhysical: z.boolean().default(false),
+    imageId: ref,
+    boards: z.array(templateBoardInput).max(20, '一个模板最多 20 块站牌'),
+  })
+  .superRefine((v, ctx) => {
+    v.boards.forEach((b, i) => {
+      if (b.kind === 'whole' && b.slots.length)
+        ctx.addIssue({ code: 'custom', path: ['boards', i, 'slots'], message: '整版站牌不能有插片' })
+      const nos = new Set<number>()
+      b.slots.forEach((s, j) => {
+        if (nos.has(s.no))
+          ctx.addIssue({ code: 'custom', path: ['boards', i, 'slots', j, 'no'], message: '插片编号重复' })
+        nos.add(s.no)
+        if (s.kind === 'other' && !s.note)
+          ctx.addIssue({ code: 'custom', path: ['boards', i, 'slots', j, 'note'], message: '非线路插片要写说明' })
+      })
+    })
+  })
+export type ShelfTemplateInput = z.infer<typeof shelfTemplateInput>
+export type ShelfTemplateInputRaw = z.input<typeof shelfTemplateInput>
+
+export const lineImpactQuery = z.object({
+  /** 只统计将删除的走向（改模式） */
+  kinds: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
+    .pipe(z.array(z.enum(ROUTE_KINDS)).optional()),
+})
+export type LineImpactQuery = z.infer<typeof lineImpactQuery>

@@ -13,15 +13,31 @@ export async function dictReferrers(db: Tx, id: string) {
   const where = {
     OR: [{ roadId: id }, { platformTypeId: id }, { safetyId: id }, { shelterTypeId: id }, { maintainerId: id }],
   }
-  const [stops, stopTotal, lines, lineTotal] = await Promise.all([
+  // 站架类型：被站架（列出所属站牌集）或站架模板引用
+  const shelfWhere = { shelves: { some: { typeId: id } } }
+  const [stops, stopTotal, lines, lineTotal, sets, setTotal, templates, templateTotal] = await Promise.all([
     db.stop.findMany({ where, select: STOP_SELECT, take: LIMIT, orderBy: { name: 'asc' } }),
     db.stop.count({ where }),
     db.line.findMany({ where: { fareSystemId: id }, select: { id: true, name: true }, take: LIMIT }),
     db.line.count({ where: { fareSystemId: id } }),
+    db.signSet.findMany({
+      where: shelfWhere,
+      select: { id: true, stop: { select: STOP_SELECT } },
+      take: LIMIT,
+      orderBy: { stop: { name: 'asc' } },
+    }),
+    db.signSet.count({ where: shelfWhere }),
+    db.shelfTemplate.findMany({ where: { typeId: id }, select: { id: true, name: true }, take: LIMIT }),
+    db.shelfTemplate.count({ where: { typeId: id } }),
   ])
   return {
-    referrers: [...stopRefs(stops), ...lines.map((l) => ({ type: '线路', id: l.id, name: l.name }))],
-    total: stopTotal + lineTotal,
+    referrers: [
+      ...stopRefs(stops),
+      ...lines.map((l) => ({ type: '线路', id: l.id, name: l.name })),
+      ...sets.map((s) => ({ type: '站牌集', id: s.id, name: stopLabel(s.stop) })),
+      ...templates.map((t) => ({ type: '站架模板', id: t.id, name: t.name })),
+    ],
+    total: stopTotal + lineTotal + setTotal + templateTotal,
   }
 }
 

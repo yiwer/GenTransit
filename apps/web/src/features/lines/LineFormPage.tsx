@@ -11,6 +11,7 @@ import {
   TICKET_TYPES,
   lineSnapshot,
   type LineDetail,
+  type LineImpact,
   type LineNameCheck,
   type SaveResult,
 } from '@gentransit/shared'
@@ -104,6 +105,8 @@ function LineForm({ original: initial }: { original: LineDetail | null }) {
   const [timesOpen, setTimesOpen] = useState(false)
   const [askClear, setAskClear] = useState(false)
   const [askRemove, setAskRemove] = useState(false)
+  /** 改模式将删除的走向在站牌集里的编排数（AC-16） */
+  const [removeImpact, setRemoveImpact] = useState<LineImpact | null>(null)
   const isNew = !original
   const route = d.routes[Math.min(active, d.routes.length - 1)]
   const setRoute = (patch: Partial<RouteDraft>) =>
@@ -158,7 +161,14 @@ function LineForm({ original: initial }: { original: LineDetail | null }) {
       setSaving(false)
     }
   }
-  const trySave = () => (removing.length ? setAskRemove(true) : void save())
+  const trySave = () => {
+    if (!removing.length) return void save()
+    setRemoveImpact(null)
+    setAskRemove(true)
+    get<LineImpact>(`/api/lines/${original!.id}/impact`, { kinds: removing.join(',') })
+      .then(setRemoveImpact)
+      .catch(() => setRemoveImpact({ stops: 0, signSets: 0, schedules: 0 }))
+  }
 
   // 未保存离开前提示（F-COM-04）
   const blocker = useBlocker(
@@ -570,9 +580,18 @@ function LineForm({ original: initial }: { original: LineDetail | null }) {
       >
         <p>
           改为{LINE_MODE_LABEL[d.mode]}后，走向{' '}
-          <b className="text-ink">{removing.map((k) => ROUTE_KIND_LABEL[k]).join('、')}</b> 会被删除，
-          它在各站牌集里的编排也会一起删除。第一个走向保留原有数据并改名为{' '}
-          {d.routes[0] && ROUTE_KIND_LABEL[d.routes[0].kind]}。
+          <b className="text-ink">{removing.map((k) => ROUTE_KIND_LABEL[k]).join('、')}</b>{' '}
+          会被删除。第一个走向保留原有数据并改名为 {d.routes[0] && ROUTE_KIND_LABEL[d.routes[0].kind]}。
+        </p>
+        <p
+          className="mt-2 rounded-xl bg-signal-soft/60 px-3 py-2 text-[13px] text-ink ring-1 ring-signal/25"
+          data-testid="impact-note"
+        >
+          {!removeImpact
+            ? '正在统计站牌集…'
+            : removeImpact.schedules
+              ? `${removing.map((k) => ROUTE_KIND_LABEL[k]).join('、')}在 ${removeImpact.signSets} 个站牌集里的 ${removeImpact.schedules} 条编排将被删除，受影响的站牌集各存一份"连带修改"快照。`
+              : `${removing.map((k) => ROUTE_KIND_LABEL[k]).join('、')}没有被任何站牌集编排。`}
         </p>
       </Dialog>
       <Dialog

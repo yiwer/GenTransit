@@ -20,7 +20,7 @@ export function LoginPage() {
     onSuccess: (me) => {
       qc.setQueryData(['me'], me)
       const next = sp.get('next')
-      nav(next && next.startsWith('/') && !next.startsWith('//') ? next : '/stops', { replace: true })
+      nav(next && next.startsWith('/') && !next.startsWith('//') ? next : '/home', { replace: true })
     },
   })
   const err = login.error

@@ -5,13 +5,28 @@ import path from 'node:path'
 import { PrismaPg } from '@prisma/adapter-pg'
 import {
   LINE_NORMALIZE,
+  ROUTE_KIND_LABEL,
+  SIGN_SET_NORMALIZE,
   STOP_NORMALIZE,
+  addBoard,
+  addShelf,
+  allBoards,
   compareText,
+  emptyDraft,
+  hide,
   lineSnapshot,
+  placeOnBoard,
+  placeOnSlot,
   signSetSnapshot,
+  signSetSnapshotOf,
   stopLabel,
   stopSnapshot,
+  updateBoard,
+  type PassageRef,
   type Ref,
+  type ShelfTemplateLike,
+  type SignSetDraft,
+  type TemplateBoard,
 } from '@gentransit/shared'
 import { PrismaClient, type DictCategory, type Prisma, type RouteKind } from '../src/generated/prisma/client'
 
@@ -24,7 +39,9 @@ try {
 const prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) })
 const hash = (type: 'stop' | 'signSet' | 'line', content: unknown) =>
   createHash('sha256')
-    .update(compareText(content, type === 'stop' ? STOP_NORMALIZE : type === 'line' ? LINE_NORMALIZE : {}))
+    .update(
+      compareText(content, type === 'stop' ? STOP_NORMALIZE : type === 'line' ? LINE_NORMALIZE : SIGN_SET_NORMALIZE),
+    )
     .digest('hex')
 
 // 原型的示意坐标 → 经纬度（GCJ-02）
@@ -362,6 +379,136 @@ const LINES: {
   },
 ]
 
+/* ---------------- 站架模板与站牌集（M3） ---------------- */
+
+const whole = (face: TemplateBoard['face'], width: number, height: number, remark = ''): TemplateBoard => ({
+  face,
+  kind: 'whole',
+  width,
+  height,
+  remark,
+  slots: [],
+})
+
+// 来自原型 SHELF_TEMPLATES，另加一个无实物的电子站牌
+const TEMPLATES: { name: string; type: string; desc: string; noPhysical?: boolean; boards: TemplateBoard[] }[] = [
+  {
+    name: '双立柱 · 双面整版',
+    type: '双立柱站架',
+    desc: '主干道标准站牌',
+    boards: [whole('front', 1200, 1800), whole('back', 1200, 1800)],
+  },
+  {
+    name: '候车亭灯箱 · 6 插片',
+    type: '候车亭灯箱',
+    desc: '标准候车亭侧灯箱',
+    boards: [
+      {
+        face: 'front',
+        kind: 'sliced',
+        width: 1500,
+        height: 2000,
+        remark: '',
+        slots: [
+          ...[1, 2, 3, 4, 5].map((no) => ({ no, kind: 'route' as const, note: '', width: 700, height: 360 })),
+          { no: 6, kind: 'other', note: '公告栏', width: 700, height: 360 },
+        ],
+      },
+    ],
+  },
+  { name: '单立柱 · 单面', type: '单立柱站架', desc: '支路简易站牌', boards: [whole('front', 600, 1200)] },
+  {
+    name: '电子站牌 · 无实物',
+    type: '电子站牌立杆',
+    desc: '电子屏滚动显示，没有实物站牌架',
+    noPhysical: true,
+    boards: [whole('front', 800, 1400, '电子屏')],
+  },
+]
+
+type RouteRef = { id: string; lineName: string; kind: RouteKind }
+type Build = (
+  d: SignSetDraft,
+  ctx: { tpl: (name: string) => ShelfTemplateLike; p: (line: string, kind: RouteKind, pass?: number) => PassageRef },
+) => SignSetDraft
+
+const boardNo = (d: SignSetDraft, no: number) => allBoards(d).find((x) => x.board.no === no)!.board
+const slotOf = (d: SignSetDraft, board: number, no: number) => boardNo(d, board).slots.find((s) => s.no === no)!.id
+const fromTemplate = (d: SignSetDraft, t: ShelfTemplateLike) => addShelf(d, { type: t.type, template: t }).draft
+
+/** 覆盖四种编排状态：整版、分片、非线路插片、环线两次途经、停运线路与站序调整造成的失效 */
+const SIGN_SETS: [code: string, build: Build][] = [
+  [
+    's01',
+    (d, { tpl, p }) => {
+      d.reminder = '2026 年 11 月 1 日起，夜1路暂停运营，恢复时间另行通知。'
+      d = fromTemplate(d, tpl('双立柱 · 双面整版'))
+      Object.assign(d.shelves[0], { name: '主站架', desc: '靠近人行道一侧', material: '铝型材 + 钢化玻璃' })
+      for (const x of [p('1路', 'up'), p('2路', 'up'), p('B1路', 'up'), p('K3路', 'up'), p('环1路', 'loop', 1)])
+        d = placeOnBoard(d, x, boardNo(d, 1).id)
+      for (const x of [p('101路', 'oneway'), p('夜1路', 'up')]) d = placeOnBoard(d, x, boardNo(d, 2).id)
+      boardNo(d, 2).remark = '夜班线路'
+      d = fromTemplate(d, tpl('候车亭灯箱 · 6 插片'))
+      d.shelves[1].name = '候车亭'
+      d = placeOnSlot(d, p('K12路', 'up'), slotOf(d, 3, 1)).draft
+      d = placeOnSlot(d, p('旅游专线', 'oneway'), slotOf(d, 3, 2)).draft
+      // 隐藏 18路下行；待编排：10路下行、环1路第 2 次途经；夜1路停运显示失效
+      return hide(d, p('18路', 'down'))
+    },
+  ],
+  [
+    's02',
+    (d, { tpl, p }) => {
+      d = fromTemplate(d, tpl('单立柱 · 单面'))
+      for (const x of [p('1路', 'down'), p('2路', 'down')]) d = placeOnBoard(d, x, boardNo(d, 1).id)
+      return d
+    },
+  ],
+  [
+    's06',
+    (d, { tpl, p }) => {
+      d = fromTemplate(d, tpl('双立柱 · 双面整版'))
+      for (const x of [p('2路', 'up'), p('101路', 'oneway'), p('K3路', 'up')]) d = placeOnBoard(d, x, boardNo(d, 1).id)
+      for (const x of [p('2路', 'down'), p('K3路', 'down'), p('环1路', 'loop')])
+        d = placeOnBoard(d, x, boardNo(d, 2).id)
+      return d
+    },
+  ],
+  [
+    's05',
+    (d, { tpl, p }) => {
+      d = fromTemplate(d, tpl('候车亭灯箱 · 6 插片'))
+      d = placeOnSlot(d, p('1路', 'up'), slotOf(d, 1, 1)).draft
+      d = placeOnSlot(d, p('夜2路', 'up'), slotOf(d, 1, 2)).draft
+      return fromTemplate(d, tpl('电子站牌 · 无实物'))
+    },
+  ],
+  [
+    's14',
+    (d, { tpl, p }) => {
+      d = fromTemplate(d, tpl('双立柱 · 双面整版'))
+      // 33路是环线，两次经过会展中心：两次途经分别编排
+      d = placeOnBoard(d, p('33路', 'loop', 1), boardNo(d, 1).id)
+      d = placeOnBoard(d, p('K12路', 'up'), boardNo(d, 1).id)
+      d = placeOnBoard(d, p('33路', 'loop', 2), boardNo(d, 2).id)
+      return placeOnBoard(d, p('18路', 'up'), boardNo(d, 2).id)
+    },
+  ],
+  [
+    's23',
+    (d, { tpl, p }) => {
+      d = fromTemplate(d, tpl('单立柱 · 单面'))
+      d = addBoard(d, d.shelves[0].id).draft
+      d = updateBoard(d, boardNo(d, 2).id, { kind: 'sliced', width: 800, height: 1200 }).draft
+      for (const x of [p('1路', 'up'), p('101路', 'oneway'), p('环1路', 'loop')])
+        d = placeOnBoard(d, x, boardNo(d, 1).id)
+      // 站序调整造成的失效：1路下行不经过新华书店
+      d = placeOnBoard(d, p('1路', 'down'), boardNo(d, 1).id)
+      return placeOnSlot(d, p('18路', 'up'), boardNo(d, 2).slots[0].id).draft
+    },
+  ],
+]
+
 async function main() {
   const reset = process.argv.includes('--reset')
   if (reset) {
@@ -434,7 +581,20 @@ async function main() {
     },
   })
 
+  const shelfTypeRef = (name: string) => d('shelfType', name)!
+  for (const t of TEMPLATES)
+    await prisma.shelfTemplate.create({
+      data: {
+        name: t.name,
+        typeId: shelfTypeRef(t.type).id,
+        desc: t.desc,
+        noPhysical: t.noPhysical ?? false,
+        boards: t.boards as unknown as Prisma.InputJsonValue,
+      },
+    })
+
   const stopIds: Record<string, string> = {}
+  const signSetIds: Record<string, string> = {}
   for (const [i, [code, name, direction, x, y, maintainerName]] of STOPS.entries()) {
     const { district, street } = regionOf(x, y)
     const roadRef = d('road', nearestRoad(x, y))
@@ -482,6 +642,7 @@ async function main() {
       include: { signSet: true },
     })
     stopIds[code] = stop.id
+    signSetIds[code] = stop.signSet!.id
     const content = stopSnapshot(
       {
         name,
@@ -530,6 +691,7 @@ async function main() {
   const stopOf = Object.fromEntries(
     STOPS.map(([code, name, direction]) => [code, { id: stopIds[code], name, direction }]),
   )
+  const routeRefs: Record<string, Partial<Record<RouteKind, RouteRef>>> = {}
   for (const l of LINES) {
     const fareSystem = d('fareSystem', l.name.startsWith('K') ? '分段计价' : '一票制')
     const fare = l.name.startsWith('K') ? '2–4 元' : '2 元'
@@ -556,7 +718,11 @@ async function main() {
           })),
         },
       },
+      include: { routes: true },
     })
+    routeRefs[l.name] = Object.fromEntries(
+      line.routes.map((x) => [x.kind, { id: x.id, lineName: l.name, kind: x.kind }]),
+    )
     // M2：种子线路也有一份新增快照
     const content = lineSnapshot(
       {
@@ -590,7 +756,83 @@ async function main() {
     })
   }
 
-  console.log(`已写入示例市：${STOPS.length} 个站点、${LINES.length} 条线路、${LANDMARKS.length} 个地标`)
+  // M3：站牌集示例（结构与编排用共享包的草稿模型生成），各存一份"修改"快照
+  const tpl = (name: string): ShelfTemplateLike => {
+    const t = TEMPLATES.find((x) => x.name === name)!
+    return { type: shelfTypeRef(t.type), desc: t.desc, noPhysical: t.noPhysical ?? false, boards: t.boards }
+  }
+  const p = (line: string, kind: RouteKind, pass = 1): PassageRef => ({ routeId: routeRefs[line][kind]!.id, pass })
+  const routeName = new Map(
+    Object.values(routeRefs).flatMap((rs) =>
+      Object.values(rs).map((x) => [x!.id, `${x!.lineName} ${ROUTE_KIND_LABEL[x!.kind]}`] as const),
+    ),
+  )
+  for (const [code, build] of SIGN_SETS) {
+    const draft = build(emptyDraft(), { tpl, p })
+    const id = signSetIds[code]
+    await prisma.signSet.update({ where: { id }, data: { reminder: draft.reminder, rev: { increment: 1 } } })
+    await prisma.shelf.createMany({
+      data: draft.shelves.map((sh, sort) => ({
+        id: sh.id,
+        signSetId: id,
+        typeId: sh.typeId,
+        no: sh.no,
+        name: sh.name,
+        desc: sh.desc,
+        noPhysical: sh.noPhysical,
+        material: sh.material,
+        sort,
+      })),
+    })
+    const boards = draft.shelves.flatMap((sh) => sh.boards.map((b, sort) => ({ b, shelfId: sh.id, sort })))
+    await prisma.board.createMany({
+      data: boards.map(({ b, shelfId, sort }) => ({
+        id: b.id,
+        shelfId,
+        signSetId: id,
+        no: b.no,
+        face: b.face,
+        kind: b.kind,
+        width: b.width,
+        height: b.height,
+        remark: b.remark,
+        sort,
+      })),
+    })
+    await prisma.slot.createMany({
+      data: boards.flatMap(({ b }) => b.slots.map((sl, sort) => ({ ...sl, boardId: b.id, sort }))),
+    })
+    await prisma.schedule.createMany({
+      data: draft.schedules.map((x) => ({
+        signSetId: id,
+        routeId: x.routeId,
+        pass: x.pass,
+        placement: x.placement,
+        boardId: x.boardId,
+        slotId: x.slotId,
+        order: x.order,
+      })),
+    })
+    const [, name, direction] = STOPS.find((x) => x[0] === code)!
+    const label = stopLabel({ name, direction })
+    const content = signSetSnapshotOf({ id: stopIds[code], name: label }, draft, (rid) => routeName.get(rid) ?? '')
+    await prisma.snapshot.create({
+      data: {
+        objectType: 'signSet',
+        objectId: id,
+        objectName: label,
+        action: 'update',
+        note: '修改：站架、站牌、线路编排',
+        content: content as unknown as Prisma.InputJsonValue,
+        compareHash: hash('signSet', content),
+      },
+    })
+  }
+
+  console.log(
+    `已写入示例市：${STOPS.length} 个站点、${LINES.length} 条线路、${LANDMARKS.length} 个地标、` +
+      `${TEMPLATES.length} 个站架模板、${SIGN_SETS.length} 个编排过的站牌集`,
+  )
 }
 
 main()

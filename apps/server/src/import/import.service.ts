@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto'
 import type { Writable } from 'node:stream'
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable } from '@nestjs/common'
 import {
   ERROR_CODES,
   IMPORT_MAX_BYTES,
   IMPORT_TTL_MS,
+  ROUTE_KIND_LABEL,
   canonicalJson,
   compareLineName,
   type CoordSystem,
@@ -19,6 +20,7 @@ import {
 import { AppError, invalid, notFound } from '../common/errors'
 import type { Prisma } from '../generated/prisma/client'
 import { LineService } from '../lines/line.service'
+import { ROUTE_REMOVAL_HOOK, type RouteRemovalHook } from '../lines/route-removal.hook'
 import { PrismaService, type Tx } from '../prisma/prisma.service'
 import { SnapshotService } from '../snapshots/snapshot.service'
 import { STOP_DETAIL_INCLUDE, StopService } from '../stops/stop.service'
@@ -58,6 +60,7 @@ export class ImportService {
     private readonly stops: StopService,
     private readonly lines: LineService,
     private readonly snapshots: SnapshotService,
+    @Inject(ROUTE_REMOVAL_HOOK) private readonly hook: RouteRemovalHook,
   ) {}
 
   /* ---------------- 模板与导出 ---------------- */
@@ -118,7 +121,15 @@ export class ImportService {
 
   private async analyze(kind: ImportKind, sheets: Sheet[], options: ImportOptions, db: Tx): Promise<Analysis<unknown>> {
     if (kind === 'stop') return analyzeStops(sheets, options.coordSystem ?? 'gcj02', await loadStopCtx(db))
-    return analyzeLines(sheets, await loadLineCtx(db, numbersIn(sheets), this.lines))
+    const ctx = await loadLineCtx(db, numbersIn(sheets), this.lines)
+    const a = analyzeLines(sheets, ctx)
+    // 改模式将删除的走向：写明受影响的站牌集数与编排数
+    for (const r of a.preview.removedRoutes) {
+      const routes = ctx.existing.get(r.key)?.routes ?? []
+      const ids = routes.filter((x) => r.routes.includes(ROUTE_KIND_LABEL[x.kind])).map((x) => x.id)
+      Object.assign(r, await this.hook.affected(ids))
+    }
+    return a
   }
 
   private async parse(buf: Buffer): Promise<Sheet[]> {

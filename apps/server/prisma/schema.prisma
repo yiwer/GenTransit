@@ -1,4 +1,4 @@
-// GenTransit 数据模型（M1）。说明见 docs/planning/2026-10-28-m1-plan.md 第 3 节
+// GenTransit 数据模型（M1）。说明见 docs/planning/2026-10-28-m1-plan.md 第 3 节；站牌集结构见 M3 计划 3.1 节
 // 名称类字段在迁移里使用 COLLATE "zh-x-icu"，按拼音排序
 
 generator client {
@@ -12,7 +12,9 @@ datasource db {
   provider = "postgresql"
 }
 
-/* ---------------- 账号、设置、上传 ---------------- */
+/**
+ * ---------------- 账号、设置、上传 ----------------
+ */
 
 model Account {
   id           String    @id @default(uuid(7)) @db.Uuid
@@ -93,18 +95,21 @@ model ExtField {
 }
 
 model Upload {
-  id           String      @id @default(uuid(7)) @db.Uuid
-  path         String
-  originalName String
-  mime         String
-  size         Int
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-  companies    BusCompany[]
-  stopPhotos   StopPhoto[]
+  id             String          @id @default(uuid(7)) @db.Uuid
+  path           String
+  originalName   String
+  mime           String
+  size           Int
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  companies      BusCompany[]
+  stopPhotos     StopPhoto[]
+  shelfTemplates ShelfTemplate[]
 }
 
-/* ---------------- 基础数据与地标 ---------------- */
+/**
+ * ---------------- 基础数据与地标 ----------------
+ */
 
 enum DictCategory {
   shelfType
@@ -123,12 +128,14 @@ model DictItem {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
-  roadStops         Stop[] @relation("StopRoad")
-  platformTypeStops Stop[] @relation("StopPlatformType")
-  safetyStops       Stop[] @relation("StopSafety")
-  shelterTypeStops  Stop[] @relation("StopShelterType")
-  maintainerStops   Stop[] @relation("StopMaintainer")
-  fareSystemLines   Line[] @relation("LineFareSystem")
+  roadStops         Stop[]          @relation("StopRoad")
+  platformTypeStops Stop[]          @relation("StopPlatformType")
+  safetyStops       Stop[]          @relation("StopSafety")
+  shelterTypeStops  Stop[]          @relation("StopShelterType")
+  maintainerStops   Stop[]          @relation("StopMaintainer")
+  fareSystemLines   Line[]          @relation("LineFareSystem")
+  shelves           Shelf[]
+  shelfTemplates    ShelfTemplate[]
 
   @@unique([category, name])
 }
@@ -208,7 +215,9 @@ model LandmarkPoint {
   @@index([landmarkId])
 }
 
-/* ---------------- 站点与站牌集 ---------------- */
+/**
+ * ---------------- 站点与站牌集 ----------------
+ */
 
 model Stop {
   id             String    @id @default(uuid(7)) @db.Uuid
@@ -284,18 +293,153 @@ model StopPhoto {
   @@index([uploadId])
 }
 
-/// 每个站点恰有一个站牌集；站架、站牌、插片、编排的表在 M3 建
+/// 每个站点恰有一个站牌集；整个站牌集带 rev 一次保存（BR-18）
 model SignSet {
-  id        String   @id @default(uuid(7)) @db.Uuid
-  stopId    String   @unique @db.Uuid
-  stop      Stop     @relation(fields: [stopId], references: [id], onDelete: Cascade)
-  reminder  String   @default("")
-  rev       Int      @default(1)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id        String     @id @default(uuid(7)) @db.Uuid
+  stopId    String     @unique @db.Uuid
+  stop      Stop       @relation(fields: [stopId], references: [id], onDelete: Cascade)
+  reminder  String     @default("")
+  rev       Int        @default(1)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  shelves   Shelf[]
+  boards    Board[]
+  schedules Schedule[]
 }
 
-/* ---------------- 线路（M1 只建表，界面与接口在 M2） ---------------- */
+enum BoardFace {
+  front
+  back
+  A
+  B
+  C
+  D
+  E
+  F
+}
+
+enum BoardKind {
+  whole
+  sliced
+}
+
+enum SlotKind {
+  route
+  other
+}
+
+enum Placement {
+  board
+  slot
+  hidden
+}
+
+/// 站架：ID 由前端生成（保存时整体替换，ID 稳定）；sort 即立面上从左到右的顺序
+model Shelf {
+  id         String   @id @db.Uuid
+  signSetId  String   @db.Uuid
+  signSet    SignSet  @relation(fields: [signSetId], references: [id], onDelete: Cascade)
+  typeId     String   @db.Uuid
+  type       DictItem @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  no         Int
+  name       String   @default("")
+  desc       String   @default("")
+  noPhysical Boolean  @default(false)
+  material   String   @default("")
+  sort       Int
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  boards     Board[]
+
+  @@unique([signSetId, no])
+  @@index([typeId])
+}
+
+/// 站牌：signSetId 冗余，用于站牌集内编号唯一
+model Board {
+  id        String     @id @db.Uuid
+  shelfId   String     @db.Uuid
+  shelf     Shelf      @relation(fields: [shelfId], references: [id], onDelete: Cascade)
+  signSetId String     @db.Uuid
+  signSet   SignSet    @relation(fields: [signSetId], references: [id], onDelete: Cascade)
+  no        Int
+  face      BoardFace
+  kind      BoardKind
+  width     Int
+  height    Int
+  remark    String     @default("")
+  sort      Int
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  slots     Slot[]
+  schedules Schedule[]
+
+  @@unique([signSetId, no])
+  @@index([shelfId])
+}
+
+model Slot {
+  id        String     @id @db.Uuid
+  boardId   String     @db.Uuid
+  board     Board      @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  no        Int
+  kind      SlotKind
+  note      String     @default("")
+  width     Int
+  height    Int
+  sort      Int
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  schedules Schedule[]
+
+  @@unique([boardId, no])
+}
+
+/// 线路编排：一次途经（走向，第几次途经）在本站的放置或隐藏（BR-05～BR-07）。
+/// 放在插片上时同时记下插片所在的站牌。部分唯一索引在迁移里手写：
+/// 每个插片最多一条；同一途经在同一块站牌最多一次；同一途经最多一条隐藏。
+/// 走向外键用 Restrict：删除走向前必须先经过 RouteRemovalHook 删除编排（BR-10）
+model Schedule {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  signSetId String    @db.Uuid
+  signSet   SignSet   @relation(fields: [signSetId], references: [id], onDelete: Cascade)
+  routeId   String    @db.Uuid
+  route     Route     @relation(fields: [routeId], references: [id], onDelete: Restrict)
+  pass      Int
+  placement Placement
+  boardId   String?   @db.Uuid
+  board     Board?    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  slotId    String?   @db.Uuid
+  slot      Slot?     @relation(fields: [slotId], references: [id], onDelete: Cascade)
+  order     Int?
+  createdAt DateTime  @default(now())
+
+  @@index([signSetId])
+  @@index([routeId])
+  @@index([boardId])
+}
+
+/// 站架模板：结构不被别处引用，整块存 JSONB；套用时复制，站架与模板之间不保留关联（BR-14）
+model ShelfTemplate {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  name       String
+  typeId     String   @db.Uuid
+  type       DictItem @relation(fields: [typeId], references: [id], onDelete: Restrict)
+  desc       String   @default("")
+  noPhysical Boolean  @default(false)
+  imageId    String?  @db.Uuid
+  image      Upload?  @relation(fields: [imageId], references: [id], onDelete: Restrict)
+  /// { face, kind, width, height, remark, slots: { no, kind, note, width, height }[] }[]
+  boards     Json     @default("[]")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([typeId, name])
+}
+
+/**
+ * ---------------- 线路（M1 只建表，界面与接口在 M2） ----------------
+ */
 
 enum LineMode {
   oneway
@@ -359,6 +503,7 @@ model Route {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   stops       RouteStop[]
+  schedules   Schedule[]
 
   @@unique([lineId, kind])
 }
@@ -379,7 +524,9 @@ model RouteStop {
   @@index([stopId])
 }
 
-/* ---------------- 修改快照 ---------------- */
+/**
+ * ---------------- 修改快照 ----------------
+ */
 
 enum ObjectType {
   stop
@@ -412,7 +559,9 @@ model Snapshot {
   @@index([createdAt(sort: Desc)])
 }
 
-/* ---------------- 导入（M2） ---------------- */
+/**
+ * ---------------- 导入（M2） ----------------
+ */
 
 enum ImportKind {
   stop

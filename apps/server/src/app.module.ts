@@ -16,6 +16,7 @@ import { LandmarksModule } from './landmarks/landmarks.module'
 import { LineModule } from './lines/line.module'
 import { PrismaModule } from './prisma/prisma.module'
 import { SettingsModule } from './settings/settings.module'
+import { SignSetModule } from './sign-sets/sign-set.module'
 import { SnapshotModule } from './snapshots/snapshot.module'
 import { StopModule } from './stops/stop.module'
 import { UploadModule } from './uploads/upload.module'
@@ -55,6 +56,7 @@ import { UploadModule } from './uploads/upload.module'
     LandmarksModule,
     StopModule,
     LineModule,
+    SignSetModule,
     ImportModule,
   ],
   controllers: [HealthController],

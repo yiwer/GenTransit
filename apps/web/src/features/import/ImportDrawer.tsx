@@ -176,6 +176,9 @@ export function ImportPreviewView({ preview }: { preview: ImportPreview }) {
                 >
                   <span className="font-semibold text-ink">{r.name}</span>
                   <span className="text-danger">删除走向 {r.routes.join('、')}</span>
+                  <span className="ml-auto text-[12.5px] text-ink-3">
+                    {r.schedules ? `${r.signSets} 个站牌集的 ${r.schedules} 条编排随之删除` : '没有站牌集编排这些走向'}
+                  </span>
                 </li>
               ))}
             </ul>
