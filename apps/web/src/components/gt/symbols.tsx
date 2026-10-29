@@ -4,20 +4,30 @@ import { cn } from '@/lib/utils'
 
 export type PlateState = 'normal' | 'suspended' | 'invalid' | 'ghost'
 
-/** 线路牌：全站线路名的统一呈现 */
+const BAND_PX = { xs: 2, sm: 2.5, md: 3, lg: 4, xl: 5 }
+
+/** 线路牌：全站线路名的统一呈现。color 是这条线路在地图上的颜色，画成牌子底部的一条色带 */
 export function RoutePlate({
   name,
   size = 'md',
   state = 'normal',
+  color,
   className,
 }: {
   name: string
   size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl'
   state?: PlateState
+  color?: string
   className?: string
 }) {
   return (
     <span
+      data-line-color={color ? '' : undefined}
+      style={
+        color
+          ? { backgroundImage: `linear-gradient(to top, ${color} ${BAND_PX[size]}px, transparent ${BAND_PX[size]}px)` }
+          : undefined
+      }
       className={cn(
         'inline-flex shrink-0 items-center justify-center whitespace-nowrap font-plate font-semibold leading-none tracking-[0.01em]',
         size === 'xs' && 'h-[18px] min-w-[26px] rounded-[3px] px-1 text-[11.5px]',

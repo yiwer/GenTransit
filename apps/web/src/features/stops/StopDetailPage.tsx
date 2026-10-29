@@ -28,6 +28,8 @@ import { SignSetGlance } from '@/features/sign-sets/SignSetPreview'
 import { del, get, isApiError } from '@/lib/api'
 import { fmtDateTime } from '@/lib/utils'
 import { MapView } from '@/map/MapView'
+import { RouteLegend } from '@/map/RouteLegend'
+import { isReturnKind, lineColor } from '@/map/routeStyle'
 import { kindLabel, regionText, useStop } from './shared'
 
 export function StopDetailPage() {
@@ -159,7 +161,11 @@ function Detail({ stop }: { stop: StopDetail }) {
                   onBlur={() => setHoverRoute(null)}
                   className="group flex items-center gap-3 border-b border-hairline px-4 py-2.5 transition-colors hover:bg-surface-2"
                 >
-                  <RoutePlate name={r.lineName} state={r.suspended ? 'suspended' : 'normal'} />
+                  <RoutePlate
+                    name={r.lineName}
+                    color={lineColor(r.lineId)}
+                    state={r.suspended ? 'suspended' : 'normal'}
+                  />
                   <span className="w-14 text-[12.5px] text-ink-2">{kindLabel(r.routeKind)}</span>
                   <span className="min-w-0 flex-1 truncate text-[13.5px]">
                     <span className="text-ink-3">开往 </span>
@@ -341,10 +347,18 @@ function Detail({ stop }: { stop: StopDetail }) {
           routes={stop.routes.map((r) => ({
             id: r.routeId,
             points: r.path,
+            color: lineColor(r.lineId),
+            hollow: isReturnKind(r.routeKind),
             tone: hoverRoute === r.routeId ? 'strong' : hoverRoute ? 'faint' : 'normal',
             flow: hoverRoute === r.routeId && !r.suspended,
           }))}
           fit={{ key: stop.id, points: [[stop.lng, stop.lat]] }}
+          overlay={
+            <RouteLegend
+              routes={stop.routes.map((r) => ({ kind: r.routeKind, road: false }))}
+              dashedText="虚线：按站点连线"
+            />
+          }
         />
       }
     />

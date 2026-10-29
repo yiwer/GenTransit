@@ -29,6 +29,8 @@ import { ImportDrawer } from '@/features/import/ImportDrawer'
 import { get, withQuery } from '@/lib/api'
 import { cn, fmtDateTime } from '@/lib/utils'
 import { MapView } from '@/map/MapView'
+import { LineSample, RouteLegend } from '@/map/RouteLegend'
+import { isReturnKind, lineColor } from '@/map/routeStyle'
 import type { MapRoute } from '@/map/types'
 import { StatusPill, endpointsText, kindText, useLineList } from './shared'
 
@@ -63,7 +65,7 @@ function lineColumns(ext: ExtFieldDef[]): ColumnDef<LineListItem>[] {
   const col = column<LineListItem>
   return [
     col('name', '线路名', 'minmax(96px,0.6fr)', (l) => (
-      <RoutePlate name={l.name} state={l.status === 'suspended' ? 'suspended' : 'normal'} />
+      <RoutePlate name={l.name} color={lineColor(l.id)} state={l.status === 'suspended' ? 'suspended' : 'normal'} />
     )),
     col('number', '管理编号', '110px', (l) => <span className="font-mono text-[12.5px] text-ink-2">{l.number}</span>),
     col('nameEn', '英文名', 'minmax(120px,0.8fr)', (l) => (
@@ -139,6 +141,9 @@ export function LineListPage() {
       // 有未过期的轨迹就画轨迹，否则按站点连线
       points: r.track ?? r.path,
       road: Boolean(r.track),
+      // 每条线路一个颜色；下行、外环画空心线
+      color: lineColor(l.id),
+      hollow: isReturnKind(r.kind),
       // 没有悬停或选中时，所有线路都是"未选中"的淡显样式；悬停或选中的那条突出
       tone: l.id === focus ? 'strong' : 'faint',
       flow: l.id === focus && l.status === 'running',
@@ -157,14 +162,17 @@ export function LineListPage() {
           : { key: `page-${page}-${size}-${JSON.stringify(f)}-${items.length}`, points: allPoints }
       }
       overlay={
-        selRow && (
-          <LineCard
-            l={selRow}
-            onClose={() => setSel(null)}
-            onOpen={() => open(selRow.id)}
-            onEdit={() => nav(`/lines/${selRow.id}/edit`)}
-          />
-        )
+        <>
+          <RouteLegend routes={items.flatMap((l) => l.routes.map((r) => ({ kind: r.kind, road: Boolean(r.track) })))} />
+          {selRow && (
+            <LineCard
+              l={selRow}
+              onClose={() => setSel(null)}
+              onOpen={() => open(selRow.id)}
+              onEdit={() => nav(`/lines/${selRow.id}/edit`)}
+            />
+          )}
+        </>
       }
     />
   )
@@ -392,6 +400,7 @@ export function LineListPage() {
                               <div className="flex items-start gap-3">
                                 <RoutePlate
                                   name={l.name}
+                                  color={lineColor(l.id)}
                                   size="lg"
                                   state={l.status === 'suspended' ? 'suspended' : 'normal'}
                                 />
@@ -491,7 +500,12 @@ function LineCard({
       className="gt-rise absolute bottom-10 right-4 z-10 w-[360px] rounded-2xl bg-surface p-4 shadow-pop ring-1 ring-hairline"
     >
       <div className="flex items-start gap-3">
-        <RoutePlate name={l.name} size="lg" state={l.status === 'suspended' ? 'suspended' : 'normal'} />
+        <RoutePlate
+          name={l.name}
+          color={lineColor(l.id)}
+          size="lg"
+          state={l.status === 'suspended' ? 'suspended' : 'normal'}
+        />
         <div className="min-w-0 flex-1">
           <div className="truncate font-display text-[17px] font-semibold">{endpointsText(l)}</div>
           <div className="mt-0.5 text-[12.5px] text-ink-3">
@@ -505,7 +519,8 @@ function LineCard({
       <ul className="mt-3 flex flex-col gap-1 border-t border-hairline pt-3 text-[12.5px]">
         {l.routes.map((r) => (
           <li key={r.id} className="flex items-center gap-2">
-            <span className="w-14 text-ink-2">{kindText(r.kind)}</span>
+            <LineSample color={lineColor(l.id)} hollow={isReturnKind(r.kind)} dashed={!r.track} />
+            <span className="w-10 text-ink-2">{kindText(r.kind)}</span>
             <span className="min-w-0 flex-1 truncate">
               {r.origin} → <span className="font-display font-semibold">{r.terminal}</span>
             </span>

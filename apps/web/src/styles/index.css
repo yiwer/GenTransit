@@ -37,6 +37,9 @@
   --sage: #5a7a68;
   --sage-soft: #dfe7df;
   --coral: #d97757;
+  /* 地图上的线路颜色：色相按线路散列（map/routeStyle.ts），亮度与彩度在这里按主题定 */
+  --route-l: 57%;
+  --route-c: 0.14;
 
   /* 示意地图 */
   --map-land: #eee7da;
@@ -102,6 +105,8 @@
   --sage: #8fb09b;
   --sage-soft: #1d2a22;
   --coral: #e8906f;
+  --route-l: 72%;
+  --route-c: 0.12;
 
   --map-land: #1c1915;
   --map-block: #211e19;
@@ -330,6 +335,17 @@ button:not(:disabled),
     opacity: 1;
   }
 }
+/* 登录页右侧的艺术视频卡片：从下向上浮现 */
+@keyframes gt-art-rise {
+  from {
+    transform: translateY(56px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
 
 .gt-breathe {
   animation: gt-breathe 2.6s var(--spring) infinite;
@@ -372,6 +388,9 @@ button:not(:disabled),
 .gt-fade {
   animation: gt-fade 0.25s var(--spring) both;
 }
+.gt-art-rise {
+  animation: gt-art-rise 1s var(--spring) 0.15s both;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .gt-breathe,
@@ -385,7 +404,8 @@ button:not(:disabled),
   .gt-draw,
   .gt-pop,
   .gt-rise,
-  .gt-fade {
+  .gt-fade,
+  .gt-art-rise {
     animation-duration: 0.01ms;
   }
 }

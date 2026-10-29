@@ -91,8 +91,8 @@ function offsetLine(pts: Px[], d: number): Px[] {
 
 /**
  * 线路走向（参考 SiteFlow 调度地图的画法，每个走向一整条，不按站间分段）：
- * 白色描边 + 墨绿实线，线上每隔一段画行驶方向箭头；没有算出轨迹、只按站点连线的画虚线。
- * 突出的走向加粗并有流动的珊瑚色短划；淡显的整体降到 0.28 不透明度
+ * 白色描边 + 线路颜色，线上每隔一段画行驶方向箭头；下行、外环是空心线（中间留一道白芯，箭头改用线路颜色）。
+ * 没有算出轨迹、只按站点连线的画虚线。突出的走向加粗并有流动的珊瑚色短划；淡显的整体降到 0.32 不透明度
  */
 function Routes({ routes, toPx, mpp }: { routes: MapRoute[]; toPx: OverlayProps['toPx']; mpp: number }) {
   const b = band(mpp)
@@ -107,13 +107,15 @@ function Routes({ routes, toPx, mpp }: { routes: MapRoute[]; toPx: OverlayProps[
       const faint = rt.tone === 'faint'
       const w = strong ? b.w + 2 : b.w
       const dash = rt.road ? undefined : '10 7'
+      const color = rt.color ?? 'var(--plate)'
       return (
         <g
           key={rt.id}
           data-testid={`map-route-${rt.id}`}
           data-tone={rt.tone}
           data-road={rt.road ? 'track' : 'stops'}
-          opacity={faint ? 0.28 : rt.road ? 1 : 0.8}
+          data-hollow={rt.hollow ? 'true' : undefined}
+          opacity={faint ? 0.32 : rt.road ? 1 : 0.85}
           style={{ transition: 'opacity 0.4s var(--spring)' }}
         >
           <polyline
@@ -128,12 +130,23 @@ function Routes({ routes, toPx, mpp }: { routes: MapRoute[]; toPx: OverlayProps[
           <polyline
             points={attr}
             fill="none"
-            stroke="var(--plate)"
+            stroke={color}
             strokeWidth={w}
             strokeDasharray={dash}
             strokeLinecap="round"
             strokeLinejoin="round"
           />
+          {rt.hollow && (
+            <polyline
+              points={attr}
+              fill="none"
+              stroke="var(--surface)"
+              strokeWidth={Math.max(1.6, w * 0.4)}
+              strokeDasharray={dash}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          )}
           {rt.flow && (
             <polyline
               points={attr}
@@ -153,7 +166,7 @@ function Routes({ routes, toPx, mpp }: { routes: MapRoute[]; toPx: OverlayProps[
                 d="M -2.5 -3 L 1.8 0 L -2.5 3"
                 transform={`translate(${c.x.toFixed(1)} ${c.y.toFixed(1)}) rotate(${c.a.toFixed(1)})`}
                 fill="none"
-                stroke="var(--surface)"
+                stroke={rt.hollow ? color : 'var(--surface)'}
                 strokeWidth={1.6}
                 strokeLinecap="round"
                 strokeLinejoin="round"

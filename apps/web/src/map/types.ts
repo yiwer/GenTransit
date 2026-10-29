@@ -21,6 +21,10 @@ export interface MapRoute {
   flow?: boolean
   /** points 是算出来的道路轨迹（实线）；否则是站点之间的连线（虚线） */
   road?: boolean
+  /** 线路颜色（routeStyle.ts 的 lineColor），默认墨绿 */
+  color?: string
+  /** 空心线：下行、外环（routeStyle.ts 的 isReturnKind） */
+  hollow?: boolean
 }
 
 export interface MapCircle {

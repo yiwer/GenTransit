@@ -29,6 +29,8 @@ import { useExtFields } from '@/features/common/data'
 import { del, get, isApiError, post } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MapView } from '@/map/MapView'
+import { LineSample, RouteLegend } from '@/map/RouteLegend'
+import { isReturnKind, lineColor } from '@/map/routeStyle'
 import { RouteTrackStrip } from './RouteTrackStrip'
 import { StatusPill, kindText, lineKey, useLine, useTransfers } from './shared'
 
@@ -174,7 +176,12 @@ function Detail({ line }: { line: LineDetail }) {
 
       <div className="px-7 pb-16">
         <header className="flex items-start gap-5 pb-6 pt-3">
-          <RoutePlate name={line.name} size="xl" state={suspended ? 'suspended' : 'normal'} />
+          <RoutePlate
+            name={line.name}
+            size="xl"
+            color={lineColor(line.id)}
+            state={suspended ? 'suspended' : 'normal'}
+          />
           <div className="min-w-0 pt-0.5">
             <div className="eyebrow">线路 · {line.number}</div>
             <h1 className="mt-1 font-display text-[22px] font-semibold leading-8">
@@ -238,7 +245,19 @@ function Detail({ line }: { line: LineDetail }) {
                   setRouteId(v)
                   setFocus(null)
                 }}
-                options={line.routes.map((r) => ({ value: r.id, label: kindText(r.kind) }))}
+                options={line.routes.map((r) => ({
+                  value: r.id,
+                  label: (
+                    <span className="inline-flex items-center gap-1.5">
+                      <LineSample
+                        color={lineColor(line.id)}
+                        hollow={isReturnKind(r.kind)}
+                        dashed={!r.track || r.track.stale}
+                      />
+                      {kindText(r.kind)}
+                    </span>
+                  ),
+                }))}
               />
               <span className="text-[12.5px] text-ink-3">{route.stops.length} 站</span>
             </div>
@@ -450,6 +469,8 @@ function Detail({ line }: { line: LineDetail }) {
                 ? r.track.points
                 : r.stops.map((s) => [s.stop.lng, s.stop.lat] as [number, number]),
             road: Boolean(r.track && !r.track.stale),
+            color: lineColor(line.id),
+            hollow: isReturnKind(r.kind),
             tone: r.id === route?.id ? 'strong' : 'faint',
             flow: r.id === route?.id && !suspended,
           }))}
@@ -462,29 +483,34 @@ function Detail({ line }: { line: LineDetail }) {
                 }
           }
           overlay={
-            focusStop && (
-              <div
-                key={focus}
-                className="gt-rise absolute bottom-10 right-4 z-10 flex w-[330px] items-center gap-3 rounded-2xl bg-surface p-3.5 shadow-pop ring-1 ring-hairline"
-              >
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="truncate font-display text-[17px] font-semibold">{focusStop.stop.name}</span>
-                    <DirBadge dir={focusStop.stop.direction} size="sm" />
+            <>
+              <RouteLegend
+                routes={line.routes.map((r) => ({ kind: r.kind, road: Boolean(r.track && !r.track.stale) }))}
+              />
+              {focusStop && (
+                <div
+                  key={focus}
+                  className="gt-rise absolute bottom-10 right-4 z-10 flex w-[330px] items-center gap-3 rounded-2xl bg-surface p-3.5 shadow-pop ring-1 ring-hairline"
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="truncate font-display text-[17px] font-semibold">{focusStop.stop.name}</span>
+                      <DirBadge dir={focusStop.stop.direction} size="sm" />
+                    </div>
+                    <div className="mt-0.5 text-[12px] text-ink-3">
+                      {kindText(route!.kind)} · 第 {focus! + 1} 站
+                      {focusStop.pass > 1 ? `（第 ${focusStop.pass} 次途经）` : ''}
+                    </div>
                   </div>
-                  <div className="mt-0.5 text-[12px] text-ink-3">
-                    {kindText(route!.kind)} · 第 {focus! + 1} 站
-                    {focusStop.pass > 1 ? `（第 ${focusStop.pass} 次途经）` : ''}
-                  </div>
+                  <Button size="sm" variant="primary" onClick={() => nav(`/stops/${focusStop.stop.id}`)}>
+                    站点详情 <ArrowUpRight size={13} />
+                  </Button>
+                  <IconButton label="取消定位" className="size-7" onClick={() => setFocus(null)}>
+                    <X size={14} />
+                  </IconButton>
                 </div>
-                <Button size="sm" variant="primary" onClick={() => nav(`/stops/${focusStop.stop.id}`)}>
-                  站点详情 <ArrowUpRight size={13} />
-                </Button>
-                <IconButton label="取消定位" className="size-7" onClick={() => setFocus(null)}>
-                  <X size={14} />
-                </IconButton>
-              </div>
-            )
+              )}
+            </>
           }
         />
       }
