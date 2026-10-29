@@ -71,9 +71,10 @@ describe('高德（T8）', () => {
   it('/api/config 只下发 JS Key，不出现安全密钥与 Web 服务 Key；需要登录', async () => {
     await t.anon().get('/api/config').expect(401)
     const res = await api.get('/api/config').expect(200)
-    expect(res.body).toEqual({ amapKey: 'test-jsapi-key', amapProxy: true, regeo: true })
+    expect(res.body).toEqual({ amapKey: 'test-jsapi-key', amapProxy: true, regeo: true, routeTrack: true })
     expect(res.text).not.toContain(CODE)
     expect(res.text).not.toContain(WEB_KEY)
+    expect(res.text).not.toContain(t.env.AMAP_API_KEY!)
   })
 
   it('代理转发时附加 jscode，响应里不出现安全密钥，不透传上游 Cookie', async () => {
@@ -157,7 +158,12 @@ describe('高德（T8）', () => {
     try {
       const a = await t2.login()
       expect((await a.get('/api/geo/regeo?lng=120.2&lat=30.25').expect(200)).body.available).toBe(false)
-      expect((await a.get('/api/config')).body).toEqual({ amapKey: 'test-jsapi-key', amapProxy: true, regeo: false })
+      expect((await a.get('/api/config')).body).toEqual({
+        amapKey: 'test-jsapi-key',
+        amapProxy: true,
+        regeo: false,
+        routeTrack: true,
+      })
     } finally {
       await t2.close()
     }

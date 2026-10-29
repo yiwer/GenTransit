@@ -11,6 +11,7 @@ Object.assign(process.env, {
   AMAP_JSAPI_KEY: 'test-jsapi-key',
   AMAP_JSAPI_SECURITY_CODE: 'test-security-code-7f3a9c',
   AMAP_WEB_SERVICE_KEY: 'test-web-service-key-5b1d',
+  AMAP_API_KEY: 'test-route-api-key-3e8b',
   UPLOAD_DIR: path.join(os.tmpdir(), `gentransit-test-uploads-${process.pid}`),
   WEB_DIST: '',
 })

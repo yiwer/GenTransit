@@ -17,6 +17,7 @@ const PASS = process.env.GT_REAL_PASSWORD ?? process.env.GT_ADMIN_PASSWORD ?? ''
 const SECRETS = [
   ['安全密钥', process.env.AMAP_JSAPI_SECURITY_CODE ?? ''],
   ['Web 服务 Key', process.env.AMAP_WEB_SERVICE_KEY ?? ''],
+  ['路线规划 Key（AMAP_API_KEY）', process.env.AMAP_API_KEY ?? ''],
 ] as const
 
 const occurrences = (hay: string, needle: string) => (needle ? hay.split(needle).length - 1 : 0)

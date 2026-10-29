@@ -14,14 +14,19 @@ import {
 import { z } from 'zod'
 import { ZodPipe } from '../common/zod.pipe'
 import { LineService } from './line.service'
+import { RouteTrackService } from './route-track.service'
 
 const nameQuery = z.object({ name: z.string().trim().min(1), excludeId: z.uuid().optional() })
 const numberQuery = z.object({ number: z.string().trim().min(1), excludeId: z.uuid().optional() })
 const routeQuery = z.object({ routeId: z.uuid() })
+const trackInput = z.object({ routeIds: z.array(z.uuid()).max(10).optional() })
 
 @Controller('api/lines')
 export class LineController {
-  constructor(private readonly svc: LineService) {}
+  constructor(
+    private readonly svc: LineService,
+    private readonly tracks: RouteTrackService,
+  ) {}
 
   @Get()
   list(@Query(new ZodPipe(lineListQuery)) q: LineListQuery) {
@@ -78,6 +83,14 @@ export class LineController {
   @HttpCode(200)
   resume(@Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(revInput)) body: RevInput) {
     return this.svc.setStatus(id, body.rev, 'running')
+  }
+
+  /** 计算走向轨迹（手动触发，默认全部走向）：返回各走向的结果与最新的线路详情 */
+  @Post(':id/track')
+  @HttpCode(200)
+  async track(@Param('id', ParseUUIDPipe) id: string, @Body(new ZodPipe(trackInput)) body: z.infer<typeof trackInput>) {
+    const r = await this.tracks.computeLine(id, body.routeIds)
+    return { ...r, item: await this.svc.get(id) }
   }
 
   @Delete(':id')

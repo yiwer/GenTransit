@@ -26,6 +26,7 @@ export default async function globalSetup() {
     AMAP_JSAPI_KEY: '',
     AMAP_JSAPI_SECURITY_CODE: '',
     AMAP_WEB_SERVICE_KEY: '',
+    AMAP_API_KEY: '',
     UPLOAD_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'gentransit-e2e-uploads-')),
     WEB_DIST: webDist,
     PORT: String(E2E_PORT),

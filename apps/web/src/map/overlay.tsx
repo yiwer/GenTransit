@@ -10,69 +10,151 @@ type Px = [number, number]
 const TONE_ORDER = { faint: 0, normal: 1, strong: 2 }
 const ptsAttr = (pts: Px[]) => pts.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')
 
-/** 每段中点画一个指向行驶方向的小箭头（段太短的不画） */
+/** 箭头间距（像素，沿线量）：站点连线和密集的轨迹点都适用 */
+const CHEVRON_GAP = 120
+
+/** 沿折线每隔一段路程画一个指向行驶方向的小箭头；整条线太短时不画 */
 function chevrons(pts: Px[]) {
   const out: { x: number; y: number; a: number }[] = []
+  let next = CHEVRON_GAP / 2
+  let walked = 0
   for (let i = 0; i < pts.length - 1; i++) {
     const [x1, y1] = pts[i]
     const [x2, y2] = pts[i + 1]
-    if (Math.hypot(x2 - x1, y2 - y1) < 46) continue
-    out.push({ x: (x1 + x2) / 2, y: (y1 + y2) / 2, a: (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI })
+    const len = Math.hypot(x2 - x1, y2 - y1)
+    while (len > 0 && walked + len >= next) {
+      const t = (next - walked) / len
+      out.push({ x: x1 + (x2 - x1) * t, y: y1 + (y2 - y1) * t, a: (Math.atan2(y2 - y1, x2 - x1) * 180) / Math.PI })
+      next += CHEVRON_GAP
+    }
+    walked += len
   }
+  return walked < 46 ? [] : out
+}
+
+/** 按屏幕像素去掉挤在一起的点（离上一个保留点不到 min 像素）：缩小看轨迹时点数少很多，画得快；首尾保留 */
+function thin(pts: Px[], min = 1.5): Px[] {
+  if (pts.length <= 2) return pts
+  const out: Px[] = [pts[0]]
+  for (let i = 1; i < pts.length - 1; i++) {
+    const [x, y] = out[out.length - 1]
+    if (Math.abs(pts[i][0] - x) + Math.abs(pts[i][1] - y) >= min) out.push(pts[i])
+  }
+  out.push(pts[pts.length - 1])
   return out
 }
 
-function Routes({ routes, toPx }: { routes: MapRoute[]; toPx: OverlayProps['toPx'] }) {
+/**
+ * 线宽与右侧偏移随比例尺分三档（参考 SiteFlow 调度地图：缩放 ≥15、≥13、其余），这里按每像素米数判断，
+ * 高德底图与示意平面通用（4.2、16.6 米约是示例市纬度上的 15、13 级）
+ */
+const band = (mpp: number) => (mpp <= 4.2 ? { w: 7, off: 6 } : mpp <= 16.6 ? { w: 6, off: 5 } : { w: 4.5, off: 4 })
+
+/**
+ * 折线整体向行驶方向的右侧平移 d 像素（只影响显示）：上下行走同一条路时并排显示，不叠在一起。
+ * 拐角处取相邻两段平移后的交点，夹角太尖时直接连接两段端点
+ */
+function offsetLine(pts: Px[], d: number): Px[] {
+  const segs: { a: Px; b: Px; ux: number; uy: number }[] = []
+  for (let i = 1; i < pts.length; i++) {
+    const [ax, ay] = pts[i - 1]
+    const [bx, by] = pts[i]
+    const len = Math.hypot(bx - ax, by - ay)
+    if (len < 1e-6) continue
+    const ux = (bx - ax) / len
+    const uy = (by - ay) / len
+    segs.push({ a: [ax - uy * d, ay + ux * d], b: [bx - uy * d, by + ux * d], ux, uy })
+  }
+  if (!segs.length) return pts
+  const out: Px[] = [segs[0].a]
+  for (let i = 1; i < segs.length; i++) {
+    const p = segs[i - 1]
+    const q = segs[i]
+    const cross = p.ux * q.uy - p.uy * q.ux
+    const dot = p.ux * q.ux + p.uy * q.uy
+    if (dot > -0.5 && Math.abs(cross) > 1e-9) {
+      const t = ((q.a[0] - p.a[0]) * q.uy - (q.a[1] - p.a[1]) * q.ux) / cross
+      const m: Px = [p.a[0] + p.ux * t, p.a[1] + p.uy * t]
+      if (Math.hypot(m[0] - p.b[0], m[1] - p.b[1]) <= 2 * d) {
+        out.push(m)
+        continue
+      }
+    } else if (Math.abs(cross) <= 1e-9 && dot > 0) {
+      out.push(p.b)
+      continue
+    }
+    out.push(p.b, q.a)
+  }
+  out.push(segs[segs.length - 1].b)
+  return out
+}
+
+/**
+ * 线路走向（参考 SiteFlow 调度地图的画法，每个走向一整条，不按站间分段）：
+ * 白色描边 + 墨绿实线，线上每隔一段画行驶方向箭头；没有算出轨迹、只按站点连线的画虚线。
+ * 突出的走向加粗并有流动的珊瑚色短划；淡显的整体降到 0.28 不透明度
+ */
+function Routes({ routes, toPx, mpp }: { routes: MapRoute[]; toPx: OverlayProps['toPx']; mpp: number }) {
+  const b = band(mpp)
   return [...routes]
-    .sort((a, b) => TONE_ORDER[a.tone] - TONE_ORDER[b.tone])
+    .sort((x, y) => TONE_ORDER[x.tone] - TONE_ORDER[y.tone])
     .map((rt) => {
-      const pts = rt.points.map(([lng, lat]) => toPx(lng, lat))
-      if (pts.length < 2) return null
+      const raw = thin(rt.points.map(([lng, lat]) => toPx(lng, lat)))
+      if (raw.length < 2) return null
+      const pts = offsetLine(raw, b.off)
+      const attr = ptsAttr(pts)
       const strong = rt.tone === 'strong'
+      const faint = rt.tone === 'faint'
+      const w = strong ? b.w + 2 : b.w
+      const dash = rt.road ? undefined : '10 7'
       return (
-        <g key={rt.id} data-testid={`map-route-${rt.id}`} data-tone={rt.tone}>
-          {strong && (
-            <polyline
-              points={ptsAttr(pts)}
-              fill="none"
-              stroke="var(--surface)"
-              strokeWidth={9}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          )}
+        <g
+          key={rt.id}
+          data-testid={`map-route-${rt.id}`}
+          data-tone={rt.tone}
+          data-road={rt.road ? 'track' : 'stops'}
+          opacity={faint ? 0.28 : rt.road ? 1 : 0.8}
+          style={{ transition: 'opacity 0.4s var(--spring)' }}
+        >
           <polyline
-            points={ptsAttr(pts)}
+            points={attr}
             fill="none"
-            stroke="var(--plate)"
-            strokeOpacity={strong ? 1 : rt.tone === 'normal' ? 0.6 : 0.28}
-            strokeWidth={strong ? 4.5 : rt.tone === 'normal' ? 3 : 2}
-            strokeDasharray={rt.tone === 'faint' ? '1 5' : undefined}
+            stroke="var(--surface)"
+            strokeWidth={w + 3}
+            strokeDasharray={dash}
             strokeLinecap="round"
             strokeLinejoin="round"
-            style={{ transition: 'stroke-opacity 0.4s var(--spring)' }}
+          />
+          <polyline
+            points={attr}
+            fill="none"
+            stroke="var(--plate)"
+            strokeWidth={w}
+            strokeDasharray={dash}
+            strokeLinecap="round"
+            strokeLinejoin="round"
           />
           {rt.flow && (
             <polyline
-              points={ptsAttr(pts)}
+              points={attr}
               fill="none"
               stroke="var(--coral)"
-              strokeWidth={4.5}
+              strokeWidth={Math.max(3, w - 2)}
               strokeDasharray="8 52"
               strokeLinecap="round"
               strokeLinejoin="round"
               className="gt-flow"
             />
           )}
-          {rt.tone !== 'faint' &&
+          {!faint &&
             chevrons(pts).map((c, i) => (
               <path
                 key={i}
-                d="M -3.5 -4 L 2.5 0 L -3.5 4"
+                d="M -2.5 -3 L 1.8 0 L -2.5 3"
                 transform={`translate(${c.x.toFixed(1)} ${c.y.toFixed(1)}) rotate(${c.a.toFixed(1)})`}
                 fill="none"
-                stroke={strong ? 'var(--plate-ink)' : 'var(--surface)'}
-                strokeWidth={1.8}
+                stroke="var(--surface)"
+                strokeWidth={1.6}
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
@@ -86,6 +168,8 @@ export interface OverlayProps {
   toPx: (lng: number, lat: number) => Px
   /** 1 米对应多少像素（用于辐射圈） */
   pxPerMeter: (lng: number, lat: number) => number
+  /** 当前每像素多少米：线路走向的线宽与偏移按它分档 */
+  metersPerPx: number
   points: MapPoint[]
   circles: MapCircle[]
   routes?: MapRoute[]
@@ -103,8 +187,10 @@ export interface OverlayProps {
 const sparkle = (cx: number, cy: number, r: number) =>
   `M ${cx} ${cy - r} C ${cx + 0.6} ${cy - 0.6}, ${cx + 0.6} ${cy - 0.6}, ${cx + r} ${cy} C ${cx + 0.6} ${cy + 0.6}, ${cx + 0.6} ${cy + 0.6}, ${cx} ${cy + r} C ${cx - 0.6} ${cy + 0.6}, ${cx - 0.6} ${cy + 0.6}, ${cx - r} ${cy} C ${cx - 0.6} ${cy - 0.6}, ${cx - 0.6} ${cy - 0.6}, ${cx} ${cy - r} Z`
 
-/** 圆点半径：和下面画圆点的尺寸一致，标注据此贴边避让 */
-const dotRadius = (s: MapPoint, sel: boolean, big: boolean) => (s.badge ? (sel ? 11 : 9) : sel ? 8 : big ? 6 : 4.8)
+/** 圆点半径：和下面画圆点的尺寸一致 */
+const dotRadius = (s: MapPoint, sel: boolean, big: boolean) => (s.badge ? (sel ? 11 : 9) : sel ? 8.5 : big ? 7 : 5.5)
+/** 圆点外侧的白边与阴影，标注避让时算进去 */
+const DOT_RIM = 2
 
 let displayFont: string | undefined
 const fontFamily = () =>
@@ -126,7 +212,7 @@ function labelLayout(p: OverlayProps, emph: Set<string>) {
       id: s.id,
       x,
       y,
-      r: dotRadius(s, sel, emph.has(s.id) || hov),
+      r: dotRadius(s, sel, emph.has(s.id) || hov) + DOT_RIM,
       w: w + LABEL_HALO * 2,
       h: size * LINE_BOX + LABEL_HALO,
       priority: sel ? 3 : hov ? 2 : emph.has(s.id) ? 1 : 0,
@@ -181,7 +267,7 @@ export function MapOverlay(p: OverlayProps) {
         )
       })}
 
-      <Routes routes={p.routes ?? []} toPx={p.toPx} />
+      <Routes routes={p.routes ?? []} toPx={p.toPx} mpp={p.metersPerPx} />
 
       {p.points.map((s) => {
         const [x, y] = p.toPx(s.lng, s.lat)
@@ -246,16 +332,30 @@ export function MapOverlay(p: OverlayProps) {
                 </text>
               </>
             ) : (
+              // 站点：墨绿实心圆点 + 白边 + 浅阴影，中心一个白芯（选中时换成珊瑚色），在暖纸、标准、卫星底图上都醒目
               <>
+                <circle
+                  cx={x}
+                  cy={y + 1.2}
+                  r={dotRadius(s, sel, em || hov) + 2.2}
+                  fill="var(--ink)"
+                  fillOpacity={0.2}
+                />
                 <circle
                   cx={x}
                   cy={y}
                   r={dotRadius(s, sel, em || hov)}
-                  fill={sel ? 'var(--plate)' : 'var(--surface)'}
-                  stroke={sel || em ? 'var(--plate)' : 'var(--ink-2)'}
-                  strokeWidth={sel ? 3 : em ? 2.2 : 1.6}
+                  fill="var(--plate)"
+                  stroke="var(--surface)"
+                  strokeWidth={sel ? 2.6 : 2.2}
+                  style={{ transition: 'r 0.25s var(--spring)' }}
                 />
-                {sel && <circle cx={x} cy={y} r={2.6} fill="var(--coral)" />}
+                <circle
+                  cx={x}
+                  cy={y}
+                  r={sel ? 3.1 : dotRadius(s, sel, em || hov) * 0.34}
+                  fill={sel ? 'var(--coral)' : 'var(--surface)'}
+                />
               </>
             )}
             {labels.has(s.id) && (

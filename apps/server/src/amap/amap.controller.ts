@@ -32,6 +32,7 @@ export class AmapController {
       amapKey: key && code ? key : null,
       amapProxy: Boolean(code),
       regeo: Boolean(this.env.AMAP_WEB_SERVICE_KEY),
+      routeTrack: Boolean(this.env.AMAP_API_KEY),
     }
   }
 
@@ -64,7 +65,12 @@ export class AmapController {
       upstream.headers.forEach((v, k) => HOP_HEADERS.has(k) && res.setHeader(k, v))
       const body = Buffer.from(await upstream.arrayBuffer())
       if (TEXT_TYPE.test(upstream.headers.get('content-type') ?? ''))
-        res.send(Buffer.from(scrub(body.toString('utf8'), [code, this.env.AMAP_WEB_SERVICE_KEY]), 'utf8'))
+        res.send(
+          Buffer.from(
+            scrub(body.toString('utf8'), [code, this.env.AMAP_WEB_SERVICE_KEY, this.env.AMAP_API_KEY]),
+            'utf8',
+          ),
+        )
       else res.send(body)
     } catch {
       res.status(502).json({ code: 'AMAP_UNAVAILABLE', message: '无法连接高德服务' })

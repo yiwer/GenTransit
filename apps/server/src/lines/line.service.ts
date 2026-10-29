@@ -30,6 +30,7 @@ import type { Prisma } from '../generated/prisma/client'
 import { PrismaService, type Tx } from '../prisma/prisma.service'
 import { SnapshotService } from '../snapshots/snapshot.service'
 import { ROUTE_REMOVAL_HOOK, type RouteRemovalHook } from './route-removal.hook'
+import { trackOf } from './route-track.service'
 
 const REF = { select: { id: true, name: true } } as const
 const STOP_SELECT = { id: true, name: true, direction: true, lng: true, lat: true } as const
@@ -47,6 +48,10 @@ const LIST_INCLUDE = {
     select: {
       id: true,
       kind: true,
+      track: true,
+      trackKey: true,
+      trackDistance: true,
+      trackAt: true,
       stops: { orderBy: { seq: 'asc' as const }, select: { stop: { select: { name: true, lng: true, lat: true } } } },
     },
   },
@@ -115,6 +120,10 @@ export class LineService {
             times: s.times,
             ext: (s.ext ?? {}) as Record<string, unknown>,
           })),
+          track: trackOf(
+            r,
+            r.stops.map((s) => [s.stop.lng, s.stop.lat]),
+          ),
         }
       })
     return {
@@ -151,14 +160,20 @@ export class LineService {
       fare: l.fare,
       routes: [...l.routes]
         .sort((a, b) => kindOrder(a.kind) - kindOrder(b.kind))
-        .map((r) => ({
-          id: r.id,
-          kind: r.kind,
-          count: r.stops.length,
-          origin: r.stops[0]?.stop.name ?? '',
-          terminal: r.stops.at(-1)?.stop.name ?? '',
-          path: r.stops.map((s) => [s.stop.lng, s.stop.lat] as [number, number]),
-        })),
+        .map((r) => {
+          const path = r.stops.map((s) => [s.stop.lng, s.stop.lat] as [number, number])
+          const track = trackOf(r, path)
+          return {
+            id: r.id,
+            kind: r.kind,
+            count: r.stops.length,
+            origin: r.stops[0]?.stop.name ?? '',
+            terminal: r.stops.at(-1)?.stop.name ?? '',
+            path,
+            // 列表地图只画未过期的轨迹，过期的按站点连线
+            track: track && !track.stale ? track.points : null,
+          }
+        }),
       ext: (l.ext ?? {}) as Record<string, unknown>,
       updatedAt: l.updatedAt.toISOString(),
     }

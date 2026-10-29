@@ -136,8 +136,11 @@ export function LineListPage() {
   const routes: MapRoute[] = items.flatMap((l) =>
     l.routes.map((r) => ({
       id: r.id,
-      points: r.path,
-      tone: focus ? (l.id === focus ? 'strong' : 'faint') : 'normal',
+      // 有未过期的轨迹就画轨迹，否则按站点连线
+      points: r.track ?? r.path,
+      road: Boolean(r.track),
+      // 没有悬停或选中时，所有线路都是"未选中"的淡显样式；悬停或选中的那条突出
+      tone: l.id === focus ? 'strong' : 'faint',
       flow: l.id === focus && l.status === 'running',
     })),
   )

@@ -190,12 +190,26 @@ describe('只读 API 模式', () => {
           serviceTime: '',
           interval: '10',
           stops: [{ seq: 1, stop: { id: S(1), name: '火车站', direction: '东' }, pass: 1, times: ['07:00'], ext: {} }],
+          track: {
+            points: [
+              [120.1, 30.2],
+              [120.11, 30.21],
+            ],
+            distance: 1520,
+            computedAt: t,
+            stale: false,
+          },
         },
       ],
       createdAt: t,
       changedAt: t,
     }
     expect(v1Line.parse(ln)).toEqual(ln)
+    // 没算过轨迹为 null；轨迹里多余字段不通过
+    expect(v1Line.parse({ ...ln, routes: [{ ...ln.routes[0], track: null }] }).routes[0].track).toBeNull()
+    expect(
+      v1Line.safeParse({ ...ln, routes: [{ ...ln.routes[0], track: { ...ln.routes[0].track, key: 'x' } }] }).success,
+    ).toBe(false)
 
     const ss = {
       id: S(4),

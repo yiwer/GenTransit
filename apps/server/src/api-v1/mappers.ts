@@ -14,6 +14,7 @@ import {
   type V1Stop,
 } from '@gentransit/shared'
 import type { Prisma } from '../generated/prisma/client'
+import { trackOf } from '../lines/route-track.service'
 import type { Tx } from '../prisma/prisma.service'
 
 /**
@@ -112,7 +113,7 @@ export const LINE_V1_INCLUDE = {
     include: {
       stops: {
         orderBy: { seq: 'asc' as const },
-        include: { stop: { select: { id: true, name: true, direction: true } } },
+        include: { stop: { select: { id: true, name: true, direction: true, lng: true, lat: true } } },
       },
     },
   },
@@ -153,6 +154,10 @@ export function lineOf(l: LineRow, ext: ExtKeys): V1Line {
             times: [...x.times],
             ext: extOf(x.ext, ext.routeStop),
           })),
+          track: trackOf(
+            r,
+            r.stops.map((x) => [x.stop.lng, x.stop.lat]),
+          ),
         }
       }),
     createdAt: iso(l.createdAt),

@@ -19,6 +19,8 @@ export interface MapRoute {
   points: LngLat[]
   tone: 'strong' | 'normal' | 'faint'
   flow?: boolean
+  /** points 是算出来的道路轨迹（实线）；否则是站点之间的连线（虚线） */
+  road?: boolean
 }
 
 export interface MapCircle {
@@ -55,3 +57,9 @@ export interface MapProps {
 
 /** 默认视野中心（示例市，杭州附近） */
 export const DEFAULT_CENTER: LngLat = [120.2, 30.25]
+
+/**
+ * 每像素不超过这么多米时显示站名（方位），标注互相避让；高德底图与示意平面共用。
+ * 取高德比例尺从"2 公里"换成"1 公里"的分界：实测每像素 14.27 米（1 公里约 70 像素），在示例市的纬度上约是 13.2 级
+ */
+export const LABEL_MAX_MPP = 14.27

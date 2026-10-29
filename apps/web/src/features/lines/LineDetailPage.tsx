@@ -1,4 +1,4 @@
-// 线路详情（5.4.6）：大号线路牌、属性表、走向分段控件、服务信息卡、站序条形图（换乘线路牌）；
+// 线路详情（5.4.6）：大号线路牌、属性表、走向分段控件、服务信息卡、轨迹、站序条形图（换乘线路牌）；
 // 单击一站 = 地图定位并浮出卡片，双击或回车 = 进入站点详情（F-COM-13）
 import {
   LINE_DIFF_SPEC,
@@ -29,6 +29,7 @@ import { useExtFields } from '@/features/common/data'
 import { del, get, isApiError, post } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MapView } from '@/map/MapView'
+import { RouteTrackStrip } from './RouteTrackStrip'
 import { StatusPill, kindText, lineKey, useLine, useTransfers } from './shared'
 
 export function LineDetailPage() {
@@ -262,6 +263,7 @@ function Detail({ line }: { line: LineDetail }) {
                 </div>
               ))}
             </div>
+            <RouteTrackStrip line={line} route={route} />
 
             {/* 站序条形图：像站牌上的线路图 */}
             <ol
@@ -442,7 +444,12 @@ function Detail({ line }: { line: LineDetail }) {
           onOpen={(i) => route && nav(`/stops/${route.stops[Number(i)].stop.id}`)}
           routes={line.routes.map((r) => ({
             id: r.id,
-            points: r.stops.map((s) => [s.stop.lng, s.stop.lat] as [number, number]),
+            // 有未过期的轨迹就画轨迹，否则按站点连线
+            points:
+              r.track && !r.track.stale
+                ? r.track.points
+                : r.stops.map((s) => [s.stop.lng, s.stop.lat] as [number, number]),
+            road: Boolean(r.track && !r.track.stale),
             tone: r.id === route?.id ? 'strong' : 'faint',
             flow: r.id === route?.id && !suspended,
           }))}

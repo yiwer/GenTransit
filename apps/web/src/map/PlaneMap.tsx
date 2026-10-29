@@ -3,7 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { cn } from '@/lib/utils'
 import { MapOverlay, ZoomControls } from './overlay'
-import { DEFAULT_CENTER, type LngLat, type MapProps } from './types'
+import { DEFAULT_CENTER, LABEL_MAX_MPP, type LngLat, type MapProps } from './types'
 
 const M_PER_DEG_LAT = 110574
 const mPerDegLng = (lat: number) => 111320 * Math.cos((lat * Math.PI) / 180)
@@ -221,13 +221,14 @@ export function PlaneMap({
       <MapOverlay
         toPx={toPx}
         pxPerMeter={() => 1 / view.mpp}
+        metersPerPx={view.mpp}
         points={points}
         circles={circles}
         routes={routes}
         selectedId={selectedId}
         hoverId={hoverId ?? hoverLocal}
         emphasizeIds={emphasizeIds}
-        showLabels={view.mpp < 4.2}
+        showLabels={view.mpp <= LABEL_MAX_MPP}
         onSelect={onSelect}
         onOpen={onOpen}
         onHover={onHover ?? setHoverLocal}

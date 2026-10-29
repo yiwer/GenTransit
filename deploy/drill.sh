@@ -26,7 +26,8 @@ BASE="http://127.0.0.1:$HTTP_PORT"
 # 演练前先记下高德密钥（只在本进程里用来比对，不打印），然后从 compose 的环境里去掉：演练不访问高德
 SECRET_CODE="${AMAP_JSAPI_SECURITY_CODE:-}"
 SECRET_WEB="${AMAP_WEB_SERVICE_KEY:-}"
-export AMAP_JSAPI_KEY='' AMAP_JSAPI_SECURITY_CODE='' AMAP_WEB_SERVICE_KEY=''
+SECRET_API="${AMAP_API_KEY:-}"
+export AMAP_JSAPI_KEY='' AMAP_JSAPI_SECURITY_CODE='' AMAP_WEB_SERVICE_KEY='' AMAP_API_KEY=''
 
 rand() { node -e "process.stdout.write(require('crypto').randomBytes($1).toString('hex'))"; }
 json() { node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const v=JSON.parse(s)$1;process.stdout.write(String(v))})"; }
@@ -76,7 +77,7 @@ if tar -tf "$WORK/image.bin" | grep -Eq '(^|/)\.env$'; then
   exit 1
 fi
 note "镜像里没有 .env 文件"
-for pair in "高德安全密钥:$SECRET_CODE" "高德 Web 服务 Key:$SECRET_WEB"; do
+for pair in "高德安全密钥:$SECRET_CODE" "高德 Web 服务 Key:$SECRET_WEB" "高德路线规划 Key（AMAP_API_KEY）:$SECRET_API"; do
   label=${pair%%:*}
   value=${pair#*:}
   if [ -z "$value" ]; then

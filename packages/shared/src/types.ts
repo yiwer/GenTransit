@@ -1,5 +1,6 @@
 // 接口返回的数据形状（DTO）
 import type { LineStatus, ServiceType, TicketType } from './line'
+import type { RouteTrack } from './track'
 import type {
   DictCategory,
   ExtOwner,
@@ -49,6 +50,8 @@ export interface AppConfig {
   amapProxy: boolean
   /** 服务端是否能做逆地理编码 */
   regeo: boolean
+  /** 服务端是否能计算走向轨迹（配置了 AMAP_API_KEY） */
+  routeTrack: boolean
 }
 
 export interface Settings {
@@ -284,6 +287,8 @@ export interface RouteDetail {
   serviceTime: string
   interval: string
   stops: RouteStopDetail[]
+  /** 轨迹（手动计算，不进快照）；没算过为 null */
+  track: RouteTrack | null
 }
 
 export interface LineDetail {
@@ -312,6 +317,8 @@ export interface LineRouteSummary {
   origin: string
   terminal: string
   path: [number, number][]
+  /** 未过期的轨迹坐标；没算过或已过期为 null，地图按站点连线 */
+  track: [number, number][] | null
 }
 
 export interface LineListItem {

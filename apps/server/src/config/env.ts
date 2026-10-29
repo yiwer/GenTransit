@@ -22,6 +22,8 @@ export const envSchema = z.object({
   AMAP_JSAPI_KEY: optional,
   AMAP_JSAPI_SECURITY_CODE: optional,
   AMAP_WEB_SERVICE_KEY: optional,
+  /** 高德 Web 服务 Key：服务端按站序计算走向轨迹（驾车路线规划）用，不下发浏览器 */
+  AMAP_API_KEY: optional,
   UPLOAD_DIR: optional,
   /** 前端构建产物目录；设置后由 Nest 托管静态资源（生产与端到端测试） */
   WEB_DIST: optional,

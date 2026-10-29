@@ -15,6 +15,7 @@ import { startServer, webDist, type StartedServer } from './server'
 const PORT = E2E_PORT + 1
 const CODE = `sentinelcode${randomBytes(10).toString('hex')}`
 const WEB_KEY = `sentinelweb${randomBytes(10).toString('hex')}`
+const API_KEY = `sentinelapi${randomBytes(10).toString('hex')}`
 
 test.use({ baseURL: `http://127.0.0.1:${PORT}` })
 
@@ -25,6 +26,11 @@ function fakeAmap() {
     const url = req.url ?? ''
     seen.push(url)
     res.setHeader('Content-Type', 'application/json; charset=utf-8')
+    if (url.startsWith('/v5/direction/driving')) {
+      // 路线规划失败，并把请求地址（带 key）塞进错误说明：服务端转述原因时要去掉 key
+      res.end(JSON.stringify({ status: '0', info: `回显 ${decodeURIComponent(url)}`, infocode: '99999' }))
+      return
+    }
     if (url.startsWith('/v3/geocode/regeo')) {
       res.end(
         JSON.stringify({
@@ -115,6 +121,7 @@ test.describe('AC-18：浏览器与服务端日志里没有高德安全密钥与
         AMAP_JSAPI_KEY: '',
         AMAP_JSAPI_SECURITY_CODE: CODE,
         AMAP_WEB_SERVICE_KEY: WEB_KEY,
+        AMAP_API_KEY: API_KEY,
         AMAP_UPSTREAM_OVERRIDE: upstream,
         UPLOAD_DIR: fs.mkdtempSync(path.join(os.tmpdir(), 'gentransit-ac18-uploads-')),
         WEB_DIST: webDist,
@@ -139,6 +146,21 @@ test.describe('AC-18：浏览器与服务端日志里没有高德安全密钥与
       data: { name: `密钥检查站${Date.now()}`, direction: '东', lng: 120.2, lat: 30.25 },
     })
     const stopId = ((await stop.json()) as { item: { id: string } }).item.id
+    const stop2 = await page.request.post('/api/stops', {
+      headers: { 'X-GT-Request': '1' },
+      data: { name: `密钥检查站${Date.now()}乙`, direction: '西', lng: 120.21, lat: 30.26 },
+    })
+    const stop2Id = ((await stop2.json()) as { item: { id: string } }).item.id
+    const line = await page.request.post('/api/lines', {
+      headers: { 'X-GT-Request': '1' },
+      data: {
+        name: `密钥${Date.now() % 100000}路`,
+        number: `KEY-${Date.now()}`,
+        mode: 'oneway',
+        routes: [{ kind: 'oneway', stops: [{ stopId }, { stopId: stop2Id }] }],
+      },
+    })
+    const lineId = ((await line.json()) as { item: { id: string } }).item.id
 
     for (const p of [
       '/home',
@@ -152,6 +174,12 @@ test.describe('AC-18：浏览器与服务端日志里没有高德安全密钥与
       await page.goto(p)
     for (const tab of ['account', 'api-tokens', 'orientation', 'ext-fields', 'backup'])
       await page.goto(`/settings/${tab}`)
+
+    // 线路详情：计算轨迹（服务端带 AMAP_API_KEY 调路线规划，假上游把 key 回显在错误说明里）
+    await page.goto(`/lines/${lineId}`)
+    const track = page.waitForResponse((r) => r.url().includes(`/api/lines/${lineId}/track`))
+    await page.getByRole('button', { name: '计算轨迹' }).click()
+    expect((await track).status()).toBe(200)
 
     // 站点表单：在示意平面上点一下，触发逆地理编码
     await page.goto('/stops/new')
@@ -187,11 +215,13 @@ test.describe('AC-18：浏览器与服务端日志里没有高德安全密钥与
     // 假上游确实收到了哨兵值：说明代理与逆地理编码真的带上了密钥，检查有意义
     expect(fake.seen.some((u) => u.includes(CODE))).toBe(true)
     expect(fake.seen.some((u) => u.includes(WEB_KEY))).toBe(true)
+    expect(fake.seen.some((u) => u.includes(API_KEY))).toBe(true)
 
     const all = await net.text()
     expect(net.count()).toBeGreaterThan(100)
     expect(all.includes(CODE), '浏览器看到了安全密钥').toBe(false)
     expect(all.includes(WEB_KEY), '浏览器看到了 Web 服务 Key').toBe(false)
+    expect(all.includes(API_KEY), '浏览器看到了路线规划用的 AMAP_API_KEY').toBe(false)
     expect(all).toContain('jscode=***')
 
     // 服务端日志
@@ -201,5 +231,6 @@ test.describe('AC-18：浏览器与服务端日志里没有高德安全密钥与
     expect(log).toContain('/_AMapService/')
     expect(log.includes(CODE), '服务端日志里有安全密钥').toBe(false)
     expect(log.includes(WEB_KEY), '服务端日志里有 Web 服务 Key').toBe(false)
+    expect(log.includes(API_KEY), '服务端日志里有 AMAP_API_KEY').toBe(false)
   })
 })

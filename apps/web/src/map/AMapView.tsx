@@ -8,11 +8,12 @@ import { cn, useStored } from '@/lib/utils'
 import { BASEMAP_KEY, BaseMapSwitch, type BaseMap } from './basemap'
 import { MapOverlay, ZoomControls } from './overlay'
 import { PlaneMap } from './PlaneMap'
-import { DEFAULT_CENTER, type LngLat, type MapProps } from './types'
+import { DEFAULT_CENTER, LABEL_MAX_MPP, type LngLat, type MapProps } from './types'
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- 高德 JS API 没有官方类型 */
 
-const STYLE = { light: 'amap://styles/whitesmoke', dark: 'amap://styles/dark', normal: 'amap://styles/normal' }
+/** 暖纸用"月光银"再叠暖色滤镜：路网清楚；原先的"远山黛"道路接近白色，叠滤镜后几乎看不见 */
+const STYLE = { light: 'amap://styles/light', dark: 'amap://styles/dark', normal: 'amap://styles/normal' }
 const TINT = {
   light: 'sepia(0.28) saturate(0.78) hue-rotate(-8deg) brightness(1.03) contrast(0.96)',
   dark: 'sepia(0.35) saturate(0.6) hue-rotate(-10deg) brightness(0.92)',
@@ -24,8 +25,6 @@ const FEATURES = { plain: ['bg', 'road', 'building'], full: ['bg', 'road', 'buil
  * 传 250 时实际约 110～130 毫秒，约为原来的三分之一
  */
 export const FOCUS_MS = 250
-/** 放大到这一级起显示站名（方位），标注互相避让 */
-const LABEL_ZOOM = 15
 const FIT_PADDING = [70, 70, 70, 70]
 
 let loading: Promise<any> | null = null
@@ -39,6 +38,41 @@ function loadAMap(key: string): Promise<any> {
     })
   }
   return loading
+}
+
+const amapPx = (map: any, lng: number, lat: number): [number, number] => {
+  const p = map.lngLatToContainer([lng, lat])
+  return [p.getX ? p.getX() : p.x, p.getY ? p.getY() : p.y]
+}
+
+/** Web 墨卡托的单位坐标（0～1） */
+const mercX = (lng: number) => (lng + 180) / 360
+const mercY = (lat: number) => {
+  const s = Math.sin((lat * Math.PI) / 180)
+  return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)
+}
+
+/**
+ * 经纬度 → 容器像素。高德的 lngLatToContainer 每次调用约 0.7 微秒，轨迹有上万个点时每帧要十几毫秒。
+ * 2D 不旋转时，容器像素是墨卡托坐标的线性变换：每帧用高德换算两个参考点，反推比例与偏移，其余点直接套公式，
+ * 快一个数量级，精度和高德一致（不用 getZoom，它在缩放动画中是四舍五入后的级别）。
+ * 第三个点对不上（地图被旋转等）就退回高德的方法
+ */
+function projector(map: any): (lng: number, lat: number) => [number, number] {
+  const c = map.getCenter()
+  const a: [number, number] = [c.getLng(), c.getLat()]
+  const b: [number, number] = [a[0] + 0.05, a[1] + 0.05]
+  const [ax, ay] = amapPx(map, ...a)
+  const [bx, by] = amapPx(map, ...b)
+  const kx = (bx - ax) / (mercX(b[0]) - mercX(a[0]))
+  const ky = (by - ay) / (mercY(b[1]) - mercY(a[1]))
+  const ox = ax - kx * mercX(a[0])
+  const oy = ay - ky * mercY(a[1])
+  const fast = (lng: number, lat: number): [number, number] => [kx * mercX(lng) + ox, ky * mercY(lat) + oy]
+  const probe: [number, number] = [a[0] - 0.03, a[1] + 0.02]
+  const [px, py] = amapPx(map, ...probe)
+  const [fx, fy] = fast(...probe)
+  return Math.abs(px - fx) + Math.abs(py - fy) < 0.5 ? fast : (lng, lat) => amapPx(map, lng, lat)
 }
 
 /** 一个点放大到街道级；多个点按范围算出级别与中心。都用同一个短动画 */
@@ -148,16 +182,13 @@ export function AMapView(props: MapProps & { amapKey: string }) {
   }
 
   const map = mapRef.current
-  const toPx = (lng: number, lat: number): [number, number] => {
-    const p = map.lngLatToContainer([lng, lat])
-    return [p.getX ? p.getX() : p.x, p.getY ? p.getY() : p.y]
-  }
+  const toPx = ready ? projector(map) : () => [0, 0] as [number, number]
   // 每米多少像素：向东 100 米投影后量像素距离
   const pxPerMeter = (lng: number, lat: number) => {
     const dLng = 100 / (111320 * Math.cos((lat * Math.PI) / 180))
     return Math.abs(toPx(lng + dLng, lat)[0] - toPx(lng, lat)[0]) / 100
   }
-  const zoom = ready ? map.getZoom() : 13
+  const metersPerPx = ready ? map.getResolution() : Infinity
 
   const startMarkerDrag = (e: ReactPointerEvent) => {
     e.stopPropagation()
@@ -209,13 +240,14 @@ export function AMapView(props: MapProps & { amapKey: string }) {
         <MapOverlay
           toPx={toPx}
           pxPerMeter={pxPerMeter}
+          metersPerPx={metersPerPx}
           points={points}
           circles={circles}
           routes={routes}
           selectedId={props.selectedId}
           hoverId={props.hoverId ?? hoverLocal}
           emphasizeIds={props.emphasizeIds}
-          showLabels={zoom >= LABEL_ZOOM}
+          showLabels={metersPerPx <= LABEL_MAX_MPP}
           onSelect={props.onSelect}
           onOpen={props.onOpen}
           onHover={props.onHover ?? setHoverLocal}

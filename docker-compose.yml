@@ -65,10 +65,11 @@ services:
       BACKUP_DIR: /backups
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
       TZ: ${TZ:-Asia/Shanghai}
-      # 高德三个变量取自 .env 或宿主机环境变量（宿主机优先）；只在运行时传入，不进镜像
+      # 高德四个变量取自 .env 或宿主机环境变量（宿主机优先）；只在运行时传入，不进镜像
       AMAP_JSAPI_KEY: ${AMAP_JSAPI_KEY:-}
       AMAP_JSAPI_SECURITY_CODE: ${AMAP_JSAPI_SECURITY_CODE:-}
       AMAP_WEB_SERVICE_KEY: ${AMAP_WEB_SERVICE_KEY:-}
+      AMAP_API_KEY: ${AMAP_API_KEY:-}
     volumes:
       - gt-uploads:/data/uploads
       - ${GT_BACKUP_PATH:-./backups}:/backups:ro

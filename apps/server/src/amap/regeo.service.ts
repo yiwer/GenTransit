@@ -104,6 +104,8 @@ export class RegeoService {
       road: pick(road),
     }
     // 上游回显请求参数时不把 Key 带给浏览器
-    return JSON.parse(scrub(JSON.stringify(result), [key, this.env.AMAP_JSAPI_SECURITY_CODE])) as RegeoResult
+    return JSON.parse(
+      scrub(JSON.stringify(result), [key, this.env.AMAP_JSAPI_SECURITY_CODE, this.env.AMAP_API_KEY]),
+    ) as RegeoResult
   }
 }

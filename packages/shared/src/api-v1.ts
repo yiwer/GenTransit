@@ -112,6 +112,15 @@ export const v1RouteStop = z.strictObject({
   ext: v1Ext,
 })
 
+export const v1Track = z
+  .strictObject({
+    points: z.array(z.tuple([z.number(), z.number()])).describe('坐标 [经度, 纬度]，GCJ-02，按行驶顺序'),
+    distance: z.number().int().describe('路程，米'),
+    computedAt: time,
+    stale: z.boolean().describe('计算之后站序或站点坐标变了：轨迹已过期，需要重新计算'),
+  })
+  .describe('走向轨迹：按站序调用高德驾车路径规划算出，在系统里手动计算')
+
 export const v1Route = z.strictObject({
   id,
   kind: enumOf(ROUTE_KINDS, ROUTE_KIND_LABEL, '走向种类'),
@@ -119,6 +128,7 @@ export const v1Route = z.strictObject({
   serviceTime: z.string(),
   interval: z.string(),
   stops: z.array(v1RouteStop),
+  track: nullable(v1Track).describe('走向轨迹；没算过为 null'),
 })
 
 export const v1Line = z

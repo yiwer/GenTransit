@@ -508,17 +508,24 @@ model Line {
 }
 
 model Route {
-  id          String       @id @default(uuid(7)) @db.Uuid
-  lineId      String       @db.Uuid
-  line        Line         @relation(fields: [lineId], references: [id], onDelete: Cascade)
-  kind        RouteKind
-  serviceType ServiceType?
-  serviceTime String       @default("")
-  interval    String       @default("")
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  stops       RouteStop[]
-  schedules   Schedule[]
+  id            String       @id @default(uuid(7)) @db.Uuid
+  lineId        String       @db.Uuid
+  line          Line         @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  kind          RouteKind
+  serviceType   ServiceType?
+  serviceTime   String       @default("")
+  interval      String       @default("")
+  /// 轨迹：按站序调用高德驾车路径规划算出的坐标数组 [[经度, 纬度], ...]（GCJ-02，已抽稀），手动计算；不进修改快照
+  track         Json?
+  /// 计算时站序坐标的指纹（shared/track.ts trackKeyOf），和当前站序不同就是已过期
+  trackKey      String?
+  /// 路程，米
+  trackDistance Int?
+  trackAt       DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  stops         RouteStop[]
+  schedules     Schedule[]
 
   @@unique([lineId, kind])
 }

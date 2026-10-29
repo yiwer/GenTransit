@@ -64,6 +64,7 @@ docker compose up -d --no-build
 | `SESSION_SECRET` | 至少 32 个字符的随机串，例如 `openssl rand -hex 32` |
 | `GT_ADMIN_USERNAME`、`GT_ADMIN_PASSWORD` | 初始账号 |
 | `AMAP_JSAPI_KEY`、`AMAP_JSAPI_SECURITY_CODE`、`AMAP_WEB_SERVICE_KEY` | 高德三个变量。也可以设为宿主机环境变量（优先于 `.env`）。只在运行时传入，不进镜像 |
+| `AMAP_API_KEY` | 高德 Web 服务 Key，线路详情里"计算轨迹"按站序调用驾车路线规划时用；只在服务端使用。不设时"计算轨迹"不可用 |
 | `GT_HTTP_PORT` | 对外端口，默认 8080 |
 | `TRUST_PROXY` | 信任哪些代理的 `X-Forwarded-*`，默认 `loopback,uniquelocal`（含 Docker 网桥） |
 | `BACKUP_TIME`、`BACKUP_RETENTION_DAYS` | 每天几点备份（默认 02:30）、保留几天（默认 30） |
