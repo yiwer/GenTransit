@@ -15,6 +15,7 @@ import {
 } from '@gentransit/shared'
 import type { Prisma } from '../generated/prisma/client'
 import { PrismaService, type Tx } from '../prisma/prisma.service'
+import { ChangeClock } from './change-clock'
 
 const NORMALIZE: Record<ObjectType, NormalizeOptions> = {
   stop: STOP_NORMALIZE,
@@ -43,7 +44,10 @@ export function compareHash(type: ObjectType, content: unknown) {
 
 @Injectable()
 export class SnapshotService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly clock: ChangeClock,
+  ) {}
 
   private last(tx: Tx, type: ObjectType, id: string) {
     return tx.snapshot.findFirst({
@@ -56,6 +60,7 @@ export class SnapshotService {
   /**
    * 与业务写入在同一个事务里记录快照。
    * 修改类动作：新哈希等于该对象最后一份快照的哈希时不写入，返回 written=false（调用方据此回滚业务写入）。
+   * 写入后更新相关站牌集的"有变化"时间（ChangeClock）
    */
   async record(tx: Tx, input: RecordInput): Promise<{ written: boolean }> {
     const hash = compareHash(input.type, input.content)
@@ -72,6 +77,7 @@ export class SnapshotService {
         compareHash: hash,
       },
     })
+    await this.clock.afterRecord(tx, input, prev?.content)
     return { written: true }
   }
 

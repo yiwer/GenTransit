@@ -26,6 +26,21 @@ export const envSchema = z.object({
   /** 前端构建产物目录；设置后由 Nest 托管静态资源（生产与端到端测试） */
   WEB_DIST: optional,
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
+  /** 信任哪些代理的 X-Forwarded-*（Express trust proxy 写法，逗号分隔）；HTTPS 下 Cookie 据此加 Secure */
+  TRUST_PROXY: z
+    .string()
+    .optional()
+    .transform((v) => v?.trim() || 'loopback'),
+  /** 备份目录（设置"备份"页签读取 status.json 与各份 manifest.json）；不设时显示"未配置" */
+  BACKUP_DIR: optional,
+  BACKUP_RETENTION_DAYS: z.preprocess(
+    (v) => (typeof v === 'string' && !v.trim() ? undefined : v),
+    z.coerce.number().int().min(1).max(3650).default(30),
+  ),
+  /** 应用版本，镜像构建时写入；OpenAPI 文档与备份清单用 */
+  APP_VERSION: optional,
+  /** 只在 NODE_ENV=test 时生效：高德上游统一换成这个地址（AC-18 端到端测试的假上游），生产环境忽略 */
+  AMAP_UPSTREAM_OVERRIDE: optional,
 })
 
 export type Env = z.infer<typeof envSchema> & { uploadDir: string }

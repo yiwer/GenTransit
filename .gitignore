@@ -15,3 +15,11 @@ apps/server/uploads/
 apps/web/playwright-report/
 apps/web/test-results/
 *.tsbuildinfo
+
+# 部署：备份目录、离线包、演练工作目录
+backups/
+deploy/out/
+deploy/drill-work/
+
+# 本机 IDE 配置
+.idea/

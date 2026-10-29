@@ -3,6 +3,7 @@ import { Body, Controller, Delete, Get, HttpCode, Injectable, Param, ParseUUIDPi
 import { shelfTemplateInput, type ShelfTemplate, type ShelfTemplateInput, type TemplateBoard } from '@gentransit/shared'
 import { duplicate, invalid, notFound } from '../common/errors'
 import { ZodPipe } from '../common/zod.pipe'
+import { tombstone } from '../common/tombstone'
 import type { Prisma } from '../generated/prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { UploadService } from '../uploads/upload.service'
@@ -76,8 +77,12 @@ export class ShelfTemplateService {
 
   /** 随时可删：已生成的站架不受影响 */
   async remove(id: string) {
-    if (!(await this.prisma.shelfTemplate.findUnique({ where: { id } }))) throw notFound('站架模板')
-    await this.prisma.shelfTemplate.delete({ where: { id } })
+    const cur = await this.prisma.shelfTemplate.findUnique({ where: { id } })
+    if (!cur) throw notFound('站架模板')
+    await this.prisma.$transaction([
+      this.prisma.shelfTemplate.delete({ where: { id } }),
+      tombstone(this.prisma, 'shelfTemplate', id, cur.name),
+    ])
   }
 }
 

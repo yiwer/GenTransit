@@ -1,4 +1,4 @@
-// 设置（5.8）：账号、方位模式、地标设置、扩展字段；API Token 在 M4
+// 设置（5.8）：账号、API Token、方位模式、地标设置、扩展字段、备份（M4）
 import {
   ERROR_CODES,
   EXT_OWNERS,
@@ -34,6 +34,8 @@ import { useMe } from '@/features/auth/auth'
 import { keys, useExtFields, useSettings } from '@/features/common/data'
 import { isApiError, post, put } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { ApiTokensTab } from './ApiTokensTab'
+import { BackupTab } from './BackupTab'
 
 const TABS = [
   { to: 'account', label: '账号' },
@@ -41,6 +43,7 @@ const TABS = [
   { to: 'orientation', label: '方位模式' },
   { to: 'landmarks', label: '地标设置' },
   { to: 'ext-fields', label: '扩展字段' },
+  { to: 'backup', label: '备份' },
 ]
 
 export function SettingsPage() {
@@ -71,10 +74,11 @@ export function SettingsPage() {
       </nav>
       <div className="min-w-0 flex-1 overflow-auto">
         {tab === 'account' && <AccountTab />}
-        {tab === 'api-tokens' && <PageHeader title="API Token" sub="只读 API 与 API Token 在 M4 实现。" />}
+        {tab === 'api-tokens' && <ApiTokensTab />}
         {tab === 'orientation' && <OrientationTab />}
         {tab === 'landmarks' && <LandmarkSettingsTab />}
         {tab === 'ext-fields' && <ExtFieldsTab />}
+        {tab === 'backup' && <BackupTab />}
       </div>
     </div>
   )

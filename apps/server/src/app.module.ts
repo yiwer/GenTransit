@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common'
 import { APP_FILTER, APP_GUARD } from '@nestjs/core'
 import { LoggerModule } from 'nestjs-pino'
 import { AmapModule } from './amap/amap.module'
+import { ApiTokenModule } from './api-tokens/api-token.module'
+import { ApiV1Module } from './api-v1/api-v1.module'
 import { AuthGuard } from './auth/auth.guard'
 import { AuthModule } from './auth/auth.module'
 import { BaseDataModule } from './base-data/base-data.module'
@@ -19,6 +21,7 @@ import { SettingsModule } from './settings/settings.module'
 import { SignSetModule } from './sign-sets/sign-set.module'
 import { SnapshotModule } from './snapshots/snapshot.module'
 import { StopModule } from './stops/stop.module'
+import { SystemModule } from './system/system.module'
 import { UploadModule } from './uploads/upload.module'
 
 @Module({
@@ -48,6 +51,7 @@ import { UploadModule } from './uploads/upload.module'
     }),
     PrismaModule,
     AuthModule,
+    ApiTokenModule,
     SnapshotModule,
     UploadModule,
     BaseDataModule,
@@ -58,6 +62,8 @@ import { UploadModule } from './uploads/upload.module'
     LineModule,
     SignSetModule,
     ImportModule,
+    ApiV1Module,
+    SystemModule,
   ],
   controllers: [HealthController],
   providers: [

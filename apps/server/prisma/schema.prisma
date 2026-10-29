@@ -1,4 +1,4 @@
-// GenTransit 数据模型（M1）。说明见 docs/planning/2026-10-28-m1-plan.md 第 3 节；站牌集结构见 M3 计划 3.1 节
+// GenTransit 数据模型（M1）。说明见 docs/planning/2026-10-28-m1-plan.md 第 3 节；站牌集结构见 M3 计划 3.1 节；只读 API 与 Token 见 M4 计划 3.10 节
 // 名称类字段在迁移里使用 COLLATE "zh-x-icu"，按拼音排序
 
 generator client {
@@ -92,6 +92,7 @@ model ExtField {
 
   @@unique([owner, key])
   @@unique([owner, name])
+  @@index([updatedAt, id])
 }
 
 model Upload {
@@ -138,6 +139,7 @@ model DictItem {
   shelfTemplates    ShelfTemplate[]
 
   @@unique([category, name])
+  @@index([updatedAt, id])
 }
 
 enum RegionLevel {
@@ -161,6 +163,7 @@ model Region {
   streetStops   Stop[] @relation("StopStreet")
 
   @@unique([parentId, name])
+  @@index([updatedAt, id])
 }
 
 model BusCompany {
@@ -174,6 +177,8 @@ model BusCompany {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   lines     Line[]
+
+  @@index([updatedAt, id])
 }
 
 model LandmarkCategory {
@@ -185,6 +190,8 @@ model LandmarkCategory {
   createdAt     DateTime   @default(now())
   updatedAt     DateTime   @updatedAt
   landmarks     Landmark[]
+
+  @@index([updatedAt, id])
 }
 
 model Landmark {
@@ -199,6 +206,7 @@ model Landmark {
   stops      StopLandmark[]
 
   @@index([categoryId])
+  @@index([updatedAt, id])
 }
 
 model LandmarkPoint {
@@ -265,7 +273,7 @@ model Stop {
   @@index([streetId])
   @@index([roadId])
   @@index([maintainerId])
-  @@index([updatedAt])
+  @@index([updatedAt, id])
 }
 
 model StopLandmark {
@@ -300,11 +308,15 @@ model SignSet {
   stop      Stop       @relation(fields: [stopId], references: [id], onDelete: Cascade)
   reminder  String     @default("")
   rev       Int        @default(1)
+  /// 只读 API 的"有变化"时间：自身快照写入、线路引起的途经变化（M4 计划 3.5 节）；不碰 rev 与 updatedAt
+  changedAt DateTime   @default(now())
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   shelves   Shelf[]
   boards    Board[]
   schedules Schedule[]
+
+  @@index([changedAt, id])
 }
 
 enum BoardFace {
@@ -435,6 +447,7 @@ model ShelfTemplate {
   updatedAt  DateTime @updatedAt
 
   @@unique([typeId, name])
+  @@index([updatedAt, id])
 }
 
 /**
@@ -490,6 +503,8 @@ model Line {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   routes       Route[]
+
+  @@index([updatedAt, id])
 }
 
 model Route {
@@ -594,4 +609,38 @@ model ImportJob {
   updatedAt DateTime     @updatedAt
 
   @@index([createdAt(sort: Desc)])
+}
+
+/**
+ * ---------------- 只读 API（M4） ----------------
+ */
+
+/// API Token：库里只存明文的 SHA-256 与前 10 个字符；吊销即删除（M4 计划 2.1 节）
+model ApiToken {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  name       String    @unique
+  prefix     String
+  tokenHash  String    @unique
+  lastUsedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+enum TombstoneType {
+  landmark
+  landmarkCategory
+  dictItem
+  region
+  busCompany
+  shelfTemplate
+}
+
+/// 墓碑：没有快照的对象被删除时，在同一事务里记下，供只读 API 的"已删除对象"使用；永久保留
+model Tombstone {
+  objectId  String        @id @db.Uuid
+  type      TombstoneType
+  name      String
+  deletedAt DateTime      @default(now())
+
+  @@index([deletedAt, objectId])
 }

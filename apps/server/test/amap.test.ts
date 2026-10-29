@@ -15,6 +15,19 @@ function fakeAmap() {
       res.end(JSON.stringify(regeoBody))
       return
     }
+    if (req.url?.includes('/echo')) {
+      // 模拟上游把请求地址原样回显在响应里
+      const echo = JSON.stringify({ url: req.url, decoded: decodeURIComponent(req.url) })
+      const jsonp = req.url.includes('/text')
+      res.setHeader('Content-Type', jsonp ? 'text/javascript' : 'application/json')
+      res.end(jsonp ? `callback(${echo})` : echo)
+      return
+    }
+    if (req.url?.includes('/tile')) {
+      res.setHeader('Content-Type', 'application/octet-stream')
+      res.end(Buffer.from([1, 2, 3, 4]))
+      return
+    }
     res.setHeader('Content-Type', 'application/json; charset=utf-8')
     res.setHeader('Set-Cookie', 'upstream=1')
     res.end(JSON.stringify({ status: '1', info: 'OK', path: req.url?.split('?')[0] }))
@@ -70,6 +83,30 @@ describe('高德（T8）', () => {
     expect(res.text).not.toContain(CODE)
     expect(JSON.stringify(res.headers)).not.toContain(CODE)
     expect(res.headers['set-cookie']).toBeUndefined()
+  })
+
+  it('上游回显请求参数时，代理把安全密钥换成 ***；二进制响应原样转发', async () => {
+    for (const p of ['/_AMapService/v3/echo?x=1', '/_AMapService/v3/echo/text?x=1']) {
+      const res = await api.get(p).expect(200)
+      expect(fake.seen.at(-1)).toContain(`jscode=${CODE}`)
+      expect(res.text).not.toContain(CODE)
+      expect(res.text).toContain('jscode=***')
+    }
+    const tile = await api.get('/_AMapService/v3/vectormap/tile?x=1').buffer(true).expect(200)
+    expect([...(tile.body as Buffer)]).toEqual([1, 2, 3, 4])
+  })
+
+  it('逆地理编码：上游回显的 Web 服务 Key 不出现在结果里', async () => {
+    fake.setRegeo({
+      status: '1',
+      regeocode: {
+        formatted_address: `回显 key=${WEB_KEY}`,
+        addressComponent: { city: `市${WEB_KEY}`, district: [], township: '', streetNumber: {} },
+      },
+    })
+    const res = await api.get('/api/geo/regeo?lng=120.2&lat=30.25').expect(200)
+    expect(res.text).not.toContain(WEB_KEY)
+    expect(res.body.address).toBe('回显 key=***')
   })
 
   it('按原型规则选择上游：样式走 webapi，矢量瓦片走 fmap01，其余走 restapi', async () => {

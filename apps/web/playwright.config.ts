@@ -5,6 +5,8 @@ import { E2E_BASE_URL } from './e2e/env'
 // 高德变量置空，地图固定使用示意平面，不依赖外网与密钥。先执行 pnpm -r build
 export default defineConfig({
   testDir: './e2e',
+  // 真实 Key 检查对着 Docker 部署跑，另有配置 playwright.real-amap.config.ts，默认不运行
+  testIgnore: /real-amap\.spec\.ts/,
   globalSetup: './e2e/global-setup.ts',
   fullyParallel: false,
   workers: 1,

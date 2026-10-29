@@ -1,27 +1,10 @@
-import { execSync, spawn } from 'node:child_process'
+import { execSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { PostgreSqlContainer } from '@testcontainers/postgresql'
-import { E2E_ADMIN, E2E_BASE_URL, E2E_PORT } from './env'
-
-const here = path.dirname(fileURLToPath(import.meta.url))
-const serverDir = path.resolve(here, '../../server')
-const webDist = path.resolve(here, '../dist')
-
-async function waitFor(url: string, ms: number) {
-  const until = Date.now() + ms
-  while (Date.now() < until) {
-    try {
-      if ((await fetch(url)).ok) return
-    } catch {
-      // 服务还没起来
-    }
-    await new Promise((r) => setTimeout(r, 300))
-  }
-  throw new Error(`等待 ${url} 超时`)
-}
+import { E2E_ADMIN, E2E_PORT } from './env'
+import { serverDir, startServer, webDist } from './server'
 
 export default async function globalSetup() {
   for (const f of [path.join(serverDir, 'dist/main.js'), path.join(webDist, 'index.html')])
@@ -50,15 +33,12 @@ export default async function globalSetup() {
     LOG_LEVEL: 'warn',
   }
   execSync('npx prisma migrate deploy', { cwd: serverDir, env, stdio: 'pipe' })
-  const server = spawn(process.execPath, ['dist/main.js'], {
-    cwd: serverDir,
-    env,
-    stdio: ['ignore', 'inherit', 'inherit'],
-  })
-  await waitFor(`${E2E_BASE_URL}/api/health`, 60_000)
+  const server = await startServer(env)
+  // 用例里另起服务端（AC-18）时连同一个测试库；globalSetup 设置的环境变量会传给各个 worker
+  process.env.GT_E2E_DATABASE_URL = env.DATABASE_URL
 
   return async () => {
-    server.kill()
+    await server.stop()
     await pg.stop()
   }
 }

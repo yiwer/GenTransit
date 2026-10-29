@@ -3,6 +3,7 @@ import { companyInput, type BusCompany, type CompanyInput } from '@gentransit/sh
 import { duplicate, inUse, notFound } from '../common/errors'
 import { companyReferrers } from '../common/referrers'
 import { ZodPipe } from '../common/zod.pipe'
+import { tombstone } from '../common/tombstone'
 import { PrismaService } from '../prisma/prisma.service'
 import { UploadService } from '../uploads/upload.service'
 
@@ -65,7 +66,10 @@ export class CompanyService {
     if (!cur) throw notFound('公交公司')
     const refs = await companyReferrers(this.prisma, id)
     if (refs.total > 0) throw inUse(cur.name, refs.referrers, refs.total)
-    await this.prisma.busCompany.delete({ where: { id } })
+    await this.prisma.$transaction([
+      this.prisma.busCompany.delete({ where: { id } }),
+      tombstone(this.prisma, 'busCompany', id, cur.name),
+    ])
   }
 }
 

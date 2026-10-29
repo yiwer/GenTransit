@@ -1,0 +1,5 @@
+# 演练专用的覆盖文件（deploy/drill.sh）：把演练库的端口临时发布到本机回环地址，供宿主机执行种子数据
+services:
+  db:
+    ports:
+      - '127.0.0.1:${GT_DRILL_DB_PORT:?}:5432'

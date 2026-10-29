@@ -10,6 +10,7 @@ import {
 import { duplicate, inUse, invalid, notFound } from '../common/errors'
 import { regionReferrers } from '../common/referrers'
 import { ZodPipe } from '../common/zod.pipe'
+import { tombstone } from '../common/tombstone'
 import { PrismaService } from '../prisma/prisma.service'
 
 const COUNT = { cityStops: true, districtStops: true, streetStops: true, children: true } as const
@@ -80,7 +81,10 @@ export class RegionService {
     if (!cur) throw notFound('区划')
     const refs = await regionReferrers(this.prisma, id)
     if (refs.total > 0) throw inUse(cur.name, refs.referrers, refs.total)
-    await this.prisma.region.delete({ where: { id } })
+    await this.prisma.$transaction([
+      this.prisma.region.delete({ where: { id } }),
+      tombstone(this.prisma, 'region', id, cur.name),
+    ])
   }
 }
 

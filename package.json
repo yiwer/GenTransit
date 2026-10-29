@@ -1,5 +1,6 @@
 {
   "name": "gentransit",
+  "version": "0.4.0",
   "private": true,
   "packageManager": "pnpm@11.13.1",
   "engines": {

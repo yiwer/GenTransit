@@ -1,0 +1,105 @@
+# GenTransit 单机部署（M4 计划 4.2 节，手册见 docs/deploy.md）：数据库、应用、备份三个容器。
+# 开发库用 docker-compose.dev.yml（项目名 gentransit）；这里固定项目名 gentransit-app，两者在同一台机器上互不干扰
+name: gentransit-app
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '5'
+
+# 备份与恢复容器共用：与 db 相同的 PostgreSQL 镜像，自带 pg_dump、pg_restore
+x-pg-client: &pg-client
+  image: postgres:16.15-bookworm
+  environment: &pg-env
+    PGHOST: db
+    PGPORT: '5432'
+    PGUSER: gentransit
+    PGPASSWORD: ${POSTGRES_PASSWORD:?请在 .env 里设置 POSTGRES_PASSWORD}
+    PGDATABASE: gentransit
+    BACKUP_TIME: ${BACKUP_TIME:-02:30}
+    BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+    APP_VERSION: ${GT_VERSION:-latest}
+    TZ: ${TZ:-Asia/Shanghai}
+  depends_on:
+    db:
+      condition: service_healthy
+  logging: *logging
+
+services:
+  db:
+    image: postgres:16.15-bookworm
+    environment:
+      POSTGRES_USER: gentransit
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 里设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: gentransit
+      # 不设 TZ：数据库保持 UTC（M4 计划 3.4 节）
+    volumes:
+      - gt-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U gentransit -d gentransit']
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    # 默认不对外暴露端口
+    restart: unless-stopped
+    logging: *logging
+
+  app:
+    build:
+      context: .
+      args:
+        APP_VERSION: ${GT_VERSION:-latest}
+    image: gentransit:${GT_VERSION:-latest}
+    env_file:
+      - ${GT_ENV_FILE:-.env}
+    # 覆盖 .env 里开发用的值，同一个 .env 在开发与部署两种场景下都能用
+    environment:
+      DATABASE_URL: postgresql://gentransit:${POSTGRES_PASSWORD}@db:5432/gentransit
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: '3000'
+      UPLOAD_DIR: /data/uploads
+      WEB_DIST: /app/web
+      TRUST_PROXY: ${TRUST_PROXY:-loopback,uniquelocal}
+      BACKUP_DIR: /backups
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-30}
+      TZ: ${TZ:-Asia/Shanghai}
+      # 高德三个变量取自 .env 或宿主机环境变量（宿主机优先）；只在运行时传入，不进镜像
+      AMAP_JSAPI_KEY: ${AMAP_JSAPI_KEY:-}
+      AMAP_JSAPI_SECURITY_CODE: ${AMAP_JSAPI_SECURITY_CODE:-}
+      AMAP_WEB_SERVICE_KEY: ${AMAP_WEB_SERVICE_KEY:-}
+    volumes:
+      - gt-uploads:/data/uploads
+      - ${GT_BACKUP_PATH:-./backups}:/backups:ro
+    ports:
+      # 默认在所有网卡上开放；放到 HTTPS 反向代理后面时改成 127.0.0.1:8080（见手册）
+      - '${GT_HTTP_PORT:-8080}:3000'
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    logging: *logging
+
+  backup:
+    <<: *pg-client
+    entrypoint: ['bash', '/scripts/backup-loop.sh']
+    volumes:
+      - gt-uploads:/uploads:ro
+      - ${GT_BACKUP_PATH:-./backups}:/backups
+      - ./deploy/backup:/scripts:ro
+    restart: unless-stopped
+
+  # 恢复用（deploy/restore.sh 调用），平时不启动：上传卷可写
+  restore:
+    <<: *pg-client
+    profiles: [tools]
+    entrypoint: ['bash', '/scripts/restore-inner.sh']
+    volumes:
+      - gt-uploads:/uploads
+      - ${GT_BACKUP_PATH:-./backups}:/backups
+      - ./deploy/backup:/scripts:ro
+
+volumes:
+  gt-db:
+  gt-uploads:

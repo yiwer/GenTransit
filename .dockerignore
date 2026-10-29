@@ -1,0 +1,26 @@
+# 镜像构建上下文（M4 计划 4.1 节）。.env 必须排除，否则 COPY . . 会把密钥打进镜像；演练脚本会检查
+.env
+.env.*
+!.env.example
+.git
+.gitattributes
+.idea
+.vscode
+.claude
+**/node_modules
+**/dist
+**/dist-dev
+**/coverage
+**/*.log
+**/*.tsbuildinfo
+apps/server/src/generated
+apps/server/uploads
+apps/web/playwright-report
+apps/web/test-results
+backups
+deploy/out
+deploy/drill-work
+prototype
+docs
+Dockerfile
+docker-compose*.yml

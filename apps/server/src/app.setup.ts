@@ -10,8 +10,9 @@ import type { Env } from './config/env'
 export function configureApp(app: NestExpressApplication, env: Env) {
   app.useLogger(app.get(Logger))
   app.disable('x-powered-by')
-  // 部署在反向代理之后时，用 X-Forwarded-Proto 判断 HTTPS（决定 Cookie 是否加 Secure）
-  app.set('trust proxy', 'loopback')
+  // 部署在反向代理之后时，用 X-Forwarded-Proto 判断 HTTPS（决定 Cookie 是否加 Secure）。
+  // 容器里宿主机的反向代理来自 Docker 网桥地址，compose 默认信任 loopback,uniquelocal
+  app.set('trust proxy', env.TRUST_PROXY)
   app.use(cookieParser())
   app.useBodyParser('json', { limit: '2mb' })
   app.enableShutdownHooks()

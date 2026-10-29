@@ -24,7 +24,7 @@ export class UploadController {
     return this.uploads.save(file)
   }
 
-  /** 下载需要登录会话（M4 起也接受 API Token） */
+  /** 下载需要登录会话；API Token 用户走 /api/v1/files/{id}（M4 计划 3.7 节） */
   @Get(':id')
   async download(@Param('id', ParseUUIDPipe) id: string, @Res() res: Response) {
     const f = await this.uploads.locate(id)

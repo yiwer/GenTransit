@@ -25,6 +25,7 @@ import { z } from 'zod'
 import { duplicate, inUse, notFound } from '../common/errors'
 import { landmarkCategoryReferrers, landmarkReferrers } from '../common/referrers'
 import { ZodPipe } from '../common/zod.pipe'
+import { tombstone } from '../common/tombstone'
 import { PrismaService, type Tx } from '../prisma/prisma.service'
 
 const LM_INCLUDE = {
@@ -77,7 +78,10 @@ export class LandmarkService {
     if (!cur) throw notFound('地标类别')
     const refs = await landmarkCategoryReferrers(this.prisma, id)
     if (refs.total > 0) throw inUse(cur.name, refs.referrers, refs.total)
-    await this.prisma.landmarkCategory.delete({ where: { id } })
+    await this.prisma.$transaction([
+      this.prisma.landmarkCategory.delete({ where: { id } }),
+      tombstone(this.prisma, 'landmarkCategory', id, cur.name),
+    ])
   }
 
   /* ---------- 地标 ---------- */
@@ -160,7 +164,10 @@ export class LandmarkService {
     if (!cur) throw notFound('地标')
     const refs = await landmarkReferrers(this.prisma, id)
     if (refs.total > 0) throw inUse(cur.name, refs.referrers, refs.total)
-    await this.prisma.landmark.delete({ where: { id } })
+    await this.prisma.$transaction([
+      this.prisma.landmark.delete({ where: { id } }),
+      tombstone(this.prisma, 'landmark', id, cur.name),
+    ])
   }
 
   /**

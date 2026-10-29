@@ -36,3 +36,26 @@ export const fmtDateTime = (iso: string) => {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
+
+/** 相对时间：刚刚、N 分钟前、N 小时前、N 天前；超过 30 天显示日期 */
+export function fmtRelative(iso: string, now = Date.now()) {
+  const s = Math.max(0, (now - Date.parse(iso)) / 1000)
+  if (s < 60) return '刚刚'
+  if (s < 3600) return `${Math.floor(s / 60)} 分钟前`
+  if (s < 86400) return `${Math.floor(s / 3600)} 小时前`
+  if (s < 30 * 86400) return `${Math.floor(s / 86400)} 天前`
+  return fmtDateTime(iso).slice(0, 10)
+}
+
+/** 字节数：B、KB、MB、GB */
+export function fmtBytes(n: number) {
+  if (n < 1024) return `${n} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let v = n / 1024
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
+}

@@ -38,6 +38,19 @@ export function matchName(name: string, candidates: Ref[]): RegeoMatch | null {
 
 const str = (v: unknown) => (typeof v === 'string' ? v : '')
 
+/**
+ * 把文本里出现的密钥换成 ***（默认决定 19）：上游如果把请求参数回显在响应里，
+ * 不让安全密钥和 Web 服务 Key 跟着转发给浏览器。原文和 URL 编码后的写法都替换
+ */
+export function scrub(text: string, secrets: (string | undefined)[]): string {
+  let out = text
+  for (const s of secrets) {
+    if (!s || s.length < 4) continue
+    for (const v of new Set([s, encodeURIComponent(s)])) out = out.split(v).join('***')
+  }
+  return out
+}
+
 @Injectable()
 export class RegeoService {
   constructor(
@@ -82,7 +95,7 @@ export class RegeoService {
     const road = matchName(roadName, roads)
     const pick = (m: RegeoMatch | null) =>
       m ? { name: m.name, match: m.match && { id: m.match.id, name: m.match.name }, how: m.how } : null
-    return {
+    const result: RegeoResult = {
       available: true,
       address: str(data.regeocode.formatted_address),
       city: pick(city),
@@ -90,5 +103,7 @@ export class RegeoService {
       street: pick(street),
       road: pick(road),
     }
+    // 上游回显请求参数时不把 Key 带给浏览器
+    return JSON.parse(scrub(JSON.stringify(result), [key, this.env.AMAP_JSAPI_SECURITY_CODE])) as RegeoResult
   }
 }

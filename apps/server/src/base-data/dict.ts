@@ -24,6 +24,7 @@ import { z } from 'zod'
 import { duplicate, inUse, notFound } from '../common/errors'
 import { dictReferrers } from '../common/referrers'
 import { ZodPipe } from '../common/zod.pipe'
+import { tombstone } from '../common/tombstone'
 import { PrismaService } from '../prisma/prisma.service'
 
 const COUNT = {
@@ -90,7 +91,10 @@ export class DictService {
     if (!cur) throw notFound('字典项')
     const refs = await dictReferrers(this.prisma, id)
     if (refs.total > 0) throw inUse(cur.name, refs.referrers, refs.total)
-    await this.prisma.dictItem.delete({ where: { id } })
+    await this.prisma.$transaction([
+      this.prisma.dictItem.delete({ where: { id } }),
+      tombstone(this.prisma, 'dictItem', id, cur.name),
+    ])
   }
 }
 

@@ -1,4 +1,5 @@
-// 工作台（需求 5.2，M3 计划 4.4）：暖纸底，一屏三块——待处理（主角）、最近修改（时间轴）、快捷新建。
+// 工作台（需求 5.2，M3 计划 4.4）：暖纸底，一屏三块——待处理（主角）、最近修改（时间轴）、快捷新建；
+// 备份过期或失败时顶部一条赭石色提醒（M4 计划 5.5 节）。
 // 不做成通用卡片仪表盘：待处理用衬线大数字加赭石呼吸点；最近修改沿用修改历史的轨道与圆点
 import {
   LINE_DIFF_SPEC,
@@ -16,6 +17,7 @@ import { Link, useNavigate } from 'react-router'
 import { HistoryDialog } from '@/components/gt/history'
 import { BreathingDot, OrbitLoader, SnapshotStack } from '@/components/gt/lively'
 import { DirBadge, RoutePlate, StatusChip, Tag } from '@/components/gt/symbols'
+import { BackupAlert } from '@/features/settings/BackupTab'
 import { useSignSetList, useSignSetSummary } from '@/features/sign-sets/data'
 import { get } from '@/lib/api'
 import { cn, fmtDateTime } from '@/lib/utils'
@@ -263,6 +265,7 @@ export function HomePage() {
           {now.getFullYear()} 年 {now.getMonth() + 1} 月 {now.getDate()} 日 · 星期{WEEK[now.getDay()]}
         </p>
       </div>
+      <BackupAlert />
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-12 px-10 pb-8 pt-4">
         <div className="flex min-h-0 flex-col gap-8">
           <Pending />

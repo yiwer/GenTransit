@@ -13,6 +13,7 @@ import {
   signSetSnapshotOf,
   stopLabel,
   type Page,
+  type Passage,
   type RouteInfo,
   type SaveResult,
   type ScheduleDraft,
@@ -192,6 +193,32 @@ export class SignSetService {
         )
     }
     return out
+  }
+
+  /**
+   * 只读 API：按条件分页读出站牌集，连同当前途经与走向信息批量组装（M4 计划 3.2 节），不逐个查
+   */
+  async bundles(
+    db: Tx,
+    args: { where: Prisma.SignSetWhereInput; orderBy?: Prisma.SignSetOrderByWithRelationInput[]; take?: number },
+  ) {
+    const rows = await db.signSet.findMany({ ...args, include: STRUCT_INCLUDE })
+    const ids = rows.map((r) => r.id)
+    const live = await this.status.livePassages(db, ids)
+    const routes = await this.routeInfos(db, [
+      ...[...live.values()].flat().map((p) => p.routeId),
+      ...rows.flatMap((r) => r.schedules.map((s) => s.routeId)),
+    ])
+    return rows.map((r) => ({
+      id: r.id,
+      stop: r.stop,
+      reminder: r.reminder,
+      changedAt: r.changedAt,
+      shelves: r.shelves,
+      draft: this.toDraft(r),
+      passages: live.get(r.id) ?? ([] as Passage[]),
+      routes,
+    }))
   }
 
   /* ---------------- 保存 ---------------- */

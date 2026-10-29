@@ -85,6 +85,21 @@ export class SignSetStatusService {
     return out
   }
 
+  /** 若干站牌集当前的途经（只读 API 批量组装用）；count 为该走向经过本站的总次数 */
+  async livePassages(db: Tx, ids: string[]): Promise<Map<string, Passage[]>> {
+    const out = new Map<string, Passage[]>()
+    if (!ids.length) return out
+    const rows = await db.$queryRaw<{ signSetId: string; routeId: string; pass: number; count: number }[]>`
+      WITH ${this.countsCte(Prisma.sql`SELECT unnest(${ids}::uuid[])`)}
+      SELECT "signSetId"::text AS "signSetId", "routeId"::text AS "routeId", pass::int AS pass,
+             (count(*) OVER (PARTITION BY "signSetId", "routeId"))::int AS count
+      FROM p
+      ORDER BY 1, 2, 3`
+    for (const r of rows)
+      out.set(r.signSetId, [...(out.get(r.signSetId) ?? []), { routeId: r.routeId, pass: r.pass, count: r.count }])
+    return out
+  }
+
   /** 工作台汇总：待处理站牌集数（有待编排或失效）、待编排总数、失效总数 */
   async summary(db: Tx) {
     const [row] = await db.$queryRaw<{ pendingSets: number; waiting: number; invalid: number }[]>`
