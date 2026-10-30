@@ -39,7 +39,9 @@ COPY --from=build --chown=node:node /out/dist ./dist
 COPY --from=build --chown=node:node /out/prisma/schema.prisma ./prisma/schema.prisma
 COPY --from=build --chown=node:node /out/prisma/migrations ./prisma/migrations
 COPY --from=build --chown=node:node /src/apps/web/dist ./web
-COPY --chmod=755 deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
+# 不用 COPY --chmod：它要求 BuildKit，传统构建器（部分服务器的默认）不支持
+RUN chmod 755 /app/docker-entrypoint.sh
 RUN mkdir -p /data/uploads && chown node:node /data/uploads
 USER node
 EXPOSE 3000
