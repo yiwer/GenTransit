@@ -4,13 +4,10 @@ import {
   CHECK_LABEL,
   DIRECTIONS,
   STOP_DIFF_SPEC,
-  type LineListItem,
-  type Page,
   type StopListItem,
   type StopListQuery,
   type StopCheck,
 } from '@gentransit/shared'
-import { useQuery } from '@tanstack/react-query'
 import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import {
   ArrowUpRight,
@@ -31,17 +28,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { DeletedList } from '@/components/gt/deleted'
 import { EmptySearchArt } from '@/components/gt/lively'
+import { LineFilter } from '@/components/gt/line-filter'
 import { Pagination, usePageParams } from '@/components/gt/pagination'
 import { DictPicker, RegionPicker } from '@/components/gt/pickers'
 import { SplitView } from '@/components/gt/split-view'
-import { DirBadge, RoutePlate } from '@/components/gt/symbols'
+import { DirBadge } from '@/components/gt/symbols'
 import { Button, IconButton } from '@/components/ui/button'
 import { Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useExtFields, useSettings } from '@/features/common/data'
 import { ImportDrawer } from '@/features/import/ImportDrawer'
-import { get, withQuery } from '@/lib/api'
+import { withQuery } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MapView } from '@/map/MapView'
 import { ColumnPicker, useColumnPrefs, type ColMeta } from '@/components/gt/columns'
@@ -76,94 +74,6 @@ function useFilters() {
   const clear = () => set(Object.fromEntries(FILTER_KEYS.map((k) => [k, null])))
   const active = FILTER_KEYS.filter((k) => f[k]).length
   return { f, tab, sort, set, clear, active }
-}
-
-/** "经过线路"筛选：线路牌多选，取并集 */
-export function LineFilter({
-  value,
-  onChange,
-  chip,
-}: {
-  value: string[]
-  onChange: (ids: string[]) => void
-  chip: (on: boolean) => string
-}) {
-  const [q, setQ] = useState('')
-  const lines = useQuery({
-    queryKey: ['lines', 'list', { q: q.trim(), size: 100, picker: true }],
-    queryFn: () => get<Page<LineListItem>>('/api/lines', { q: q.trim(), size: 100 }),
-  })
-  const chosen = useQuery({
-    queryKey: ['lines', 'list', { ids: value }],
-    queryFn: () => get<Page<LineListItem>>('/api/lines', { size: 100 }),
-    enabled: value.length > 0,
-  })
-  const names = (chosen.data?.items ?? []).filter((l) => value.includes(l.id))
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <button type="button" className={chip(value.length > 0)} aria-label="经过线路">
-          {value.length ? (
-            <span className="flex items-center gap-1">
-              经过
-              {names.slice(0, 3).map((l) => (
-                <RoutePlate key={l.id} name={l.name} size="xs" />
-              ))}
-              {value.length > 3 && `+${value.length - 3}`}
-            </span>
-          ) : (
-            '经过线路'
-          )}
-          <ChevronDown size={13} />
-        </button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[300px] p-2">
-        <input
-          autoFocus
-          aria-label="搜索线路"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="搜索线路名"
-          className="mb-1.5 h-8 w-full rounded-lg bg-sunken px-2.5 text-[13.5px] focus:outline-none focus:ring-1 focus:ring-accent"
-        />
-        <ul className="flex max-h-[280px] flex-wrap gap-1.5 overflow-auto p-1">
-          {(lines.data?.items ?? []).map((l) => {
-            const on = value.includes(l.id)
-            return (
-              <li key={l.id}>
-                <button
-                  type="button"
-                  aria-pressed={on}
-                  title={l.routes[0] ? `${l.routes[0].origin} — ${l.routes[0].terminal}` : l.name}
-                  onClick={() => onChange(on ? value.filter((x) => x !== l.id) : [...value, l.id])}
-                  className={cn(
-                    'rounded-[5px] transition-transform',
-                    on
-                      ? 'scale-105 ring-2 ring-coral ring-offset-1 ring-offset-surface'
-                      : 'opacity-80 hover:opacity-100',
-                  )}
-                >
-                  <RoutePlate name={l.name} size="sm" state={l.status === 'suspended' ? 'suspended' : 'normal'} />
-                </button>
-              </li>
-            )
-          })}
-          {lines.isSuccess && !lines.data.items.length && (
-            <li className="w-full py-3 text-center text-[12.5px] text-ink-3">没有线路</li>
-          )}
-        </ul>
-        {value.length > 0 && (
-          <button
-            type="button"
-            className="mt-1 px-1 text-[12px] text-accent hover:underline"
-            onClick={() => onChange([])}
-          >
-            清除线路筛选
-          </button>
-        )}
-      </PopoverContent>
-    </Popover>
-  )
 }
 
 function FilterBar() {

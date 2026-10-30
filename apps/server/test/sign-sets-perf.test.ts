@@ -79,4 +79,24 @@ describe('站牌集性能（设计规模）', () => {
     expect(r.body.changed).toBe(true)
     expect(saveMs).toBeLessThan(1000)
   })
+
+  it.each([
+    ['工作台汇总', '/api/sign-sets/summary'],
+    ['工作台队列', '/api/sign-sets/queue?from=home'],
+    ['数据体检', '/api/data-checks'],
+    ['只看待处理 + 按待处理排序', '/api/sign-sets?pending=1&sort=-pending&size=5'],
+  ])('%s走计数快照：写入后第一次重算，第二次不慢于第一次（M6）', async (_, url) => {
+    // 改一个站牌集的修改时间，让数据版本变化
+    await t.prisma.$executeRawUnsafe(
+      `UPDATE "SignSet" SET "updatedAt" = clock_timestamp() WHERE id = (SELECT id FROM "SignSet" ORDER BY id LIMIT 1)`,
+    )
+    let start = performance.now()
+    await api.get(url).expect(200)
+    const first = performance.now() - start
+    start = performance.now()
+    await api.get(url).expect(200)
+    const second = performance.now() - start
+    console.log(`${url} 第一次 ${Math.round(first)} ms，第二次 ${Math.round(second)} ms`)
+    expect(second).toBeLessThanOrEqual(first)
+  })
 })

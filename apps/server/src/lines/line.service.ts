@@ -20,6 +20,8 @@ import {
   type LineListItem,
   type LineListQuery,
   type LineNameCheck,
+  type LineOptions,
+  type LineOptionsQuery,
   type LineUpdateInput,
   type Page,
   type Ref,
@@ -53,13 +55,10 @@ const LIST_INCLUDE = {
   company: REF,
   fareSystem: REF,
   routes: {
+    // 列表不带轨迹（Q79）：地图只按站点连线
     select: {
       id: true,
       kind: true,
-      track: true,
-      trackKey: true,
-      trackDistance: true,
-      trackAt: true,
       stops: { orderBy: { seq: 'asc' as const }, select: { stop: { select: { name: true, lng: true, lat: true } } } },
     },
   },
@@ -169,20 +168,14 @@ export class LineService {
       fare: l.fare,
       routes: [...l.routes]
         .sort((a, b) => kindOrder(a.kind) - kindOrder(b.kind))
-        .map((r) => {
-          const path = r.stops.map((s) => [s.stop.lng, s.stop.lat] as [number, number])
-          const track = trackOf(r, path)
-          return {
-            id: r.id,
-            kind: r.kind,
-            count: r.stops.length,
-            origin: r.stops[0]?.stop.name ?? '',
-            terminal: r.stops.at(-1)?.stop.name ?? '',
-            path,
-            // 列表地图只画未过期的轨迹，过期的按站点连线
-            track: track && !track.stale ? track.points : null,
-          }
-        }),
+        .map((r) => ({
+          id: r.id,
+          kind: r.kind,
+          count: r.stops.length,
+          origin: r.stops[0]?.stop.name ?? '',
+          terminal: r.stops.at(-1)?.stop.name ?? '',
+          path: r.stops.map((s) => [s.stop.lng, s.stop.lat] as [number, number]),
+        })),
       ext: (l.ext ?? {}) as Record<string, unknown>,
       updatedAt: l.updatedAt.toISOString(),
     }
@@ -225,6 +218,20 @@ export class LineService {
       this.prisma.line.findMany({ where, orderBy, skip, take: q.size, include: LIST_INCLUDE }),
     ])
     return { items: rows.map((r) => this.toListItem(r)), total, page: q.page, size: q.size }
+  }
+
+  /** 线路选择器的轻量选项（M6 计划 3.4）：按自动排序，只带名称与状态；给了 ids 就只取这些线路 */
+  async options(q: LineOptionsQuery): Promise<LineOptions> {
+    const where: Prisma.LineWhereInput = q.ids
+      ? { id: { in: q.ids } }
+      : {
+          OR: q.q
+            ? [{ name: { contains: q.q, mode: 'insensitive' } }, { number: { contains: q.q, mode: 'insensitive' } }]
+            : undefined,
+        }
+    const all = await this.prisma.line.findMany({ where, select: { id: true, name: true, status: true } })
+    all.sort((a, b) => compareLineName(a.name, b.name) || (a.id < b.id ? -1 : 1))
+    return { items: q.ids ? all : all.slice(0, q.size), total: all.length }
   }
 
   /** 线路详情条形图：该走向每一站可换乘的其他线路 */

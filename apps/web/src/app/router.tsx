@@ -1,19 +1,18 @@
-import { createBrowserRouter, Navigate } from 'react-router'
+import { createBrowserRouter, Navigate, type RouteObject } from 'react-router'
 import { LoginPage } from '@/features/auth/LoginPage'
-import { BaseDataPage } from '@/features/base-data/BaseDataPage'
-import { HomePage } from '@/features/home/HomePage'
-import { LandmarksPage } from '@/features/landmarks/LandmarksPage'
-import { LineDetailPage } from '@/features/lines/LineDetailPage'
-import { LineFormPage } from '@/features/lines/LineFormPage'
-import { LineListPage } from '@/features/lines/LineListPage'
-import { SettingsPage } from '@/features/settings/SettingsPage'
-import { SignSetEditorPage } from '@/features/sign-sets/SignSetEditorPage'
-import { SignSetListPage } from '@/features/sign-sets/SignSetListPage'
-import { StopDetailPage } from '@/features/stops/StopDetailPage'
-import { StopFormPage } from '@/features/stops/StopFormPage'
-import { StopListPage } from '@/features/stops/StopListPage'
 import { AppShell, Placeholder } from '@/shell/AppShell'
+import { PageLoading, pages } from './pages'
 import { RequireAuth } from './RequireAuth'
+
+/**
+ * 按需加载的页面（M6）。HydrateFallback 静态写在路由上：首次打开时外壳照常渲染，
+ * 只有内容区显示加载态；之后切换页面的加载态由外壳显示（AppShell）
+ */
+const page = (path: string, lazy: () => Promise<Pick<RouteObject, 'Component'>>): RouteObject => ({
+  path,
+  lazy,
+  HydrateFallback: PageLoading,
+})
 
 export const router = createBrowserRouter([
   { path: '/login', element: <LoginPage /> },
@@ -24,20 +23,20 @@ export const router = createBrowserRouter([
         element: <AppShell />,
         children: [
           { index: true, element: <Navigate to="/home" replace /> },
-          { path: '/home', element: <HomePage /> },
-          { path: '/stops', element: <StopListPage /> },
-          { path: '/stops/new', element: <StopFormPage /> },
-          { path: '/stops/:id', element: <StopDetailPage /> },
-          { path: '/stops/:id/edit', element: <StopFormPage /> },
-          { path: '/lines', element: <LineListPage /> },
-          { path: '/lines/new', element: <LineFormPage /> },
-          { path: '/lines/:id', element: <LineDetailPage /> },
-          { path: '/lines/:id/edit', element: <LineFormPage /> },
-          { path: '/sign-sets', element: <SignSetListPage /> },
-          { path: '/sign-sets/:stopId', element: <SignSetEditorPage /> },
-          { path: '/landmarks', element: <LandmarksPage /> },
-          { path: '/base-data/:tab?', element: <BaseDataPage /> },
-          { path: '/settings/:tab?', element: <SettingsPage /> },
+          page('/home', pages.home),
+          page('/stops', pages.stopList),
+          page('/stops/new', pages.stopForm),
+          page('/stops/:id', pages.stopDetail),
+          page('/stops/:id/edit', pages.stopForm),
+          page('/lines', pages.lineList),
+          page('/lines/new', pages.lineForm),
+          page('/lines/:id', pages.lineDetail),
+          page('/lines/:id/edit', pages.lineForm),
+          page('/sign-sets', pages.signSetList),
+          page('/sign-sets/:stopId', pages.signSetEditor),
+          page('/landmarks', pages.landmarks),
+          page('/base-data/:tab?', pages.baseData),
+          page('/settings/:tab?', pages.settings),
           { path: '*', element: <Placeholder title="页面不存在" milestone="—" /> },
         ],
       },

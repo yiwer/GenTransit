@@ -36,7 +36,7 @@ export function LineSample({
   )
 }
 
-/** dashedText：虚线一行的说明；站点详情的走向总是按站点连线（不带轨迹），不能说成"未算轨迹" */
+/** dashedText：虚线一行的说明；站点详情与线路列表的走向总是按站点连线（不带轨迹），不能说成"未算轨迹" */
 export function RouteLegend({
   routes,
   dashedText = '虚线：未算轨迹，按站点连线',

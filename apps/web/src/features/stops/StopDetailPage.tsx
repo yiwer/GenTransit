@@ -23,7 +23,7 @@ import {
   Trash2,
   X,
 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { ReferrerList } from '@/components/gt/confirm'
 import { HistoryButton } from '@/components/gt/history'
@@ -36,7 +36,7 @@ import { Button, IconButton } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/dropdown-menu'
 import { useExtFields, useLandmarks } from '@/features/common/data'
-import { useSignSet } from '@/features/sign-sets/data'
+import { signSetQuery, useSignSet } from '@/features/sign-sets/data'
 import { SignSetGlance } from '@/features/sign-sets/SignSetPreview'
 import { del, get, isApiError } from '@/lib/api'
 import { useNavStateOnce } from '@/lib/nav-state'
@@ -51,6 +51,11 @@ import { kindLabel, regionText, useStop } from './shared'
 export function StopDetailPage() {
   const { id } = useParams()
   const q = useStop(id)
+  // 站牌集与站点详情同时请求，不等详情返回（M6 计划 4.4）
+  const qc = useQueryClient()
+  useEffect(() => {
+    if (id) void qc.prefetchQuery(signSetQuery(id))
+  }, [qc, id])
   if (q.isPending)
     return (
       <div className="flex h-full items-center justify-center gap-2 text-ink-3">

@@ -9,6 +9,7 @@ import {
   wrongSide,
   type GroupLineResult,
   type LineDetail,
+  type LineOptions,
   type OppositeMap,
   type Page,
   type StopDetail,
@@ -80,8 +81,9 @@ export function JoinLinesDialog({
   const search = useQuery({
     queryKey: ['lines', 'join-search', term],
     enabled: open && term.length > 0,
+    // 只要名称：用轻量的线路选项接口，不取走向与站序（M6）
     queryFn: async () =>
-      (await get<Page<{ id: string; name: string }>>('/api/lines', { q: term, size: 8 })).items.map((l) => ({
+      (await get<LineOptions>('/api/lines/options', { q: term, size: 8 })).items.map((l) => ({
         id: l.id,
         name: l.name,
       })),

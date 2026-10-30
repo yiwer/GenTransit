@@ -291,6 +291,22 @@ export const lineListQuery = z.object({
 })
 export type LineListQuery = z.infer<typeof lineListQuery>
 
+/**
+ * 线路选择器的轻量选项（M6）："经过线路"筛选、加入线路对话框用。q 匹配线路名与管理编号；
+ * ids（逗号分隔）按 ID 取，用于显示已选线路的名称，给了 ids 就不看 q 与 size
+ */
+export const lineOptionsQuery = z.object({
+  q: z.string().trim().max(100).optional(),
+  ids: z
+    .string()
+    .trim()
+    .optional()
+    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
+    .pipe(z.array(z.uuid()).max(100).optional()),
+  size: z.coerce.number().int().min(1).max(100).default(20),
+})
+export type LineOptionsQuery = z.infer<typeof lineOptionsQuery>
+
 /** 站名 + 方位批量匹配（粘贴两列文本） */
 export const stopMatchInput = z.object({
   rows: z.array(z.object({ name: z.string().trim().max(100), direction: z.string().trim().max(50) })).max(500),

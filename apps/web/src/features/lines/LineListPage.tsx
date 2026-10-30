@@ -140,9 +140,9 @@ export function LineListPage() {
   const routes: MapRoute[] = items.flatMap((l) =>
     l.routes.map((r) => ({
       id: r.id,
-      // 有未过期的轨迹就画轨迹，否则按站点连线
-      points: r.track ?? r.path,
-      road: Boolean(r.track),
+      // 列表只按站点连线，不带轨迹（Q79）；轨迹在线路详情里画
+      points: r.path,
+      road: false,
       // 每条线路一个颜色；下行、外环画空心线
       color: lineColor(l.id),
       hollow: isReturnKind(r.kind),
@@ -165,7 +165,10 @@ export function LineListPage() {
       }
       overlay={
         <>
-          <RouteLegend routes={items.flatMap((l) => l.routes.map((r) => ({ kind: r.kind, road: Boolean(r.track) })))} />
+          <RouteLegend
+            routes={items.flatMap((l) => l.routes.map((r) => ({ kind: r.kind, road: false })))}
+            dashedText="虚线：按站点连线"
+          />
           {selRow && (
             <LineCard
               l={selRow}
@@ -532,7 +535,7 @@ function LineCard({
       <ul className="mt-3 flex flex-col gap-1 border-t border-hairline pt-3 text-[12.5px]">
         {l.routes.map((r) => (
           <li key={r.id} className="flex items-center gap-2">
-            <LineSample color={lineColor(l.id)} hollow={isReturnKind(r.kind)} dashed={!r.track} />
+            <LineSample color={lineColor(l.id)} hollow={isReturnKind(r.kind)} dashed />
             <span className="w-10 text-ink-2">{kindText(r.kind)}</span>
             <span className="min-w-0 flex-1 truncate">
               {r.origin} → <span className="font-display font-semibold">{r.terminal}</span>

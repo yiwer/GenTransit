@@ -104,6 +104,8 @@ server {
 
 应用根据 `X-Forwarded-Proto` 判断 HTTPS，给登录 Cookie 加 `Secure`。反向代理不在本机或不在私有网段时，把它的地址加进 `TRUST_PROXY`。记得把 HTTPS 域名加进高德 JS API Key 的域名白名单。
 
+应用自己会用 gzip 压缩接口与前端静态资源（M6），不需要在 Nginx 里另开压缩；开了也不冲突，Nginx 看到已压缩的响应不会再压一遍。`/assets/` 下带内容哈希的文件缓存一年，升级后文件名会变，浏览器会取新版本。
+
 ## 5. 日常运维
 
 ```bash

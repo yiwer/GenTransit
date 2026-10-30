@@ -318,9 +318,21 @@ export interface LineRouteSummary {
   count: number
   origin: string
   terminal: string
+  /** 站点坐标；线路列表的地图只按站点连线，列表不带轨迹（Q79），轨迹只在线路详情里 */
   path: [number, number][]
-  /** 未过期的轨迹坐标；没算过或已过期为 null，地图按站点连线 */
-  track: [number, number][] | null
+}
+
+/** 线路选择器的一项（M6）：只有名称与状态，不带走向 */
+export interface LineOption {
+  id: string
+  name: string
+  status: LineStatus
+}
+
+/** 线路选项：按自动排序取前 size 条；total 是全部匹配的条数 */
+export interface LineOptions {
+  items: LineOption[]
+  total: number
 }
 
 export interface LineListItem {

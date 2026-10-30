@@ -25,7 +25,14 @@ export default defineConfig(
     },
   },
   {
-    files: ['apps/server/**/*.ts', 'packages/**/*.ts', '**/*.mjs', '**/*.config.ts', 'apps/web/e2e/**/*.ts'],
+    files: [
+      'apps/server/**/*.ts',
+      'packages/**/*.ts',
+      '**/*.mjs',
+      '**/*.config.ts',
+      'apps/web/e2e/**/*.ts',
+      'apps/web/perf/**/*.ts',
+    ],
     languageOptions: { globals: globals.node },
   },
   {

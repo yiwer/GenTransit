@@ -239,6 +239,46 @@ describe('线路（T2）', () => {
     expect(sus.total).toBe(0)
   })
 
+  it('列表不带轨迹，只带站点坐标（Q79）', async () => {
+    await create()
+    const r = (await api.get('/api/lines').expect(200)).body.items[0].routes[0]
+    expect(r).not.toHaveProperty('track')
+    expect(r.path).toEqual([
+      [120.2, 30.25],
+      [120.2, 30.25],
+      [120.2, 30.25],
+    ])
+  })
+
+  it('线路选项（M6）：只带名称与状态，按自动排序；q 匹配线路名与管理编号；ids 按 ID 取；size 最多 100', async () => {
+    const names = ['K12路', '夜1路', 'B2路', '10路', '1路', 'K1路', '2路']
+    const made: Record<string, LineDetail> = {}
+    for (const [i, name] of names.entries()) made[name] = await create({ name, number: `N-${i}` })
+    await api.post(`/api/lines/${made['2路'].id}/suspend`).send({ rev: made['2路'].rev }).expect(200)
+
+    const first = (await api.get('/api/lines/options?size=3').expect(200)).body
+    expect(first).toEqual({
+      items: [
+        { id: made['1路'].id, name: '1路', status: 'running' },
+        { id: made['2路'].id, name: '2路', status: 'suspended' },
+        { id: made['10路'].id, name: '10路', status: 'running' },
+      ],
+      total: 7,
+    })
+    const byName = (await api.get(`/api/lines/options?q=${encodeURIComponent('k1')}`)).body
+    expect(byName.items.map((x: { name: string }) => x.name)).toEqual(['K1路', 'K12路'])
+    const byNumber = (await api.get('/api/lines/options?q=N-6')).body
+    expect(byNumber.items.map((x: { name: string }) => x.name)).toEqual(['2路'])
+
+    // ids：不受 q、size 影响，按自动排序返回
+    const ids = [made['K12路'].id, made['夜1路'].id, made['1路'].id].join(',')
+    const chosen = (await api.get(`/api/lines/options?ids=${ids}&q=nothing&size=1`).expect(200)).body
+    expect(chosen.items.map((x: { name: string }) => x.name)).toEqual(['1路', '夜1路', 'K12路'])
+
+    await api.get('/api/lines/options?size=101').expect(400)
+    await api.get('/api/lines/options?ids=not-a-uuid').expect(400)
+  })
+
   it('换乘：该走向每一站可换乘的其他线路', async () => {
     const a = await create()
     await create({ name: '2路', number: 'G-2' })

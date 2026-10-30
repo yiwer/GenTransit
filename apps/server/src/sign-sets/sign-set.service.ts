@@ -29,7 +29,7 @@ import { AppError, invalid, notFound } from '../common/errors'
 import { Prisma } from '../generated/prisma/client'
 import { PrismaService, type Tx } from '../prisma/prisma.service'
 import { SnapshotService } from '../snapshots/snapshot.service'
-import { SignSetStatusService } from './sign-set-status.service'
+import { SignSetStatusService, ZERO_COUNTS, type CountSnapshot } from './sign-set-status.service'
 
 const REF = { select: { id: true, name: true } } as const
 
@@ -380,39 +380,49 @@ export class SignSetService {
     }
     return {
       sql: Prisma.sql`SELECT ss.id FROM "SignSet" ss JOIN "Stop" st ON st.id = ss."stopId" WHERE ${Prisma.join(conds, ' AND ')}`,
-      /** 有筛选条件：计数只对筛选范围内的站牌集计算；没有时直接算全部，省去范围判断 */
-      scoped: conds.length > 1,
     }
   }
 
   /**
-   * 筛选、"只看待处理"、排序后的站牌集 ID；一条 SQL 同时返回总数与当前页。
-   * 只有"只看待处理"与按待处理数排序需要先算出筛选范围内全部站牌集的计数；
-   * 其余情况不在这里计数（列表只对当前页计数，导出不需要）
+   * 筛选、"只看待处理"、排序后的站牌集 ID 与总数。
+   * 不筛待处理也不按待处理排序时一条 SQL 返回总数与当前页，不计数（列表只对当前页计数，导出不需要）；
+   * 否则先用 SQL 按其他筛选条件取出全部 ID（不计数），再用全部站牌集的计数快照过滤、排序、分页（M6 计划 3.5），
+   * 同时带回快照，列表就不必再算本页的计数
    */
-  async ids(q: Omit<SignSetListQuery, 'page' | 'size'>, page?: { skip: number; take: number }) {
-    const counted = q.pending || q.sort === '-pending'
-    const pendingOf = Prisma.sql`coalesce(c.waiting, 0) + coalesce(c.invalid, 0)`
-    const order =
-      q.sort === '-pending'
-        ? Prisma.sql`${pendingOf} DESC, st.name, st.direction, ss.id`
-        : q.sort === '-updatedAt'
-          ? Prisma.sql`ss."updatedAt" DESC, ss.id`
-          : Prisma.sql`st.name, st.direction, ss.id`
+  async ids(
+    q: Omit<SignSetListQuery, 'page' | 'size'>,
+    page?: { skip: number; take: number },
+  ): Promise<{ total: number; items: { id: string }[]; counts?: CountSnapshot }> {
     const f = this.filterSql(q)
-    const counts = counted
-      ? Prisma.sql`, ${this.status.countsCte(f.scoped ? Prisma.sql`SELECT id FROM f` : undefined)}`
-      : Prisma.empty
+    const order =
+      q.sort === '-updatedAt' ? Prisma.sql`ss."updatedAt" DESC, ss.id` : Prisma.sql`st.name, st.direction, ss.id`
+    if (q.pending || q.sort === '-pending') {
+      const [rows, counts] = await Promise.all([
+        this.prisma.$queryRaw<{ id: string }[]>`
+          SELECT ss.id::text AS id
+          FROM (${f.sql}) f
+          JOIN "SignSet" ss ON ss.id = f.id
+          JOIN "Stop" st ON st.id = ss."stopId"
+          ORDER BY ${order}`,
+        this.status.all(),
+      ])
+      const pendingOf = (id: string) => {
+        const c = counts.get(id)
+        return c ? c.waiting + c.invalid : 0
+      }
+      let all = q.pending ? rows.filter((r) => pendingOf(r.id) > 0) : rows
+      // 稳定排序：待处理数相同的保持站名顺序
+      if (q.sort === '-pending') all = [...all].sort((a, b) => pendingOf(b.id) - pendingOf(a.id))
+      return { total: all.length, items: page ? all.slice(page.skip, page.skip + page.take) : all, counts }
+    }
     const window = page ? Prisma.sql`WHERE rn > ${page.skip} AND rn <= ${page.skip + page.take}` : Prisma.empty
     const [row] = await this.prisma.$queryRaw<{ total: number; items: { id: string }[] }[]>`
-      WITH f AS (${f.sql})${counts},
+      WITH f AS (${f.sql}),
       r AS (
         SELECT ss.id, row_number() OVER (ORDER BY ${order}) AS rn
         FROM f
         JOIN "SignSet" ss ON ss.id = f.id
         JOIN "Stop" st ON st.id = ss."stopId"
-        ${counted ? Prisma.sql`LEFT JOIN c ON c.id = f.id` : Prisma.empty}
-        ${q.pending ? Prisma.sql`WHERE ${pendingOf} > 0` : Prisma.empty}
       )
       SELECT (SELECT count(*) FROM r)::int AS total,
              coalesce((SELECT json_agg(json_build_object('id', id) ORDER BY rn) FROM r ${window}), '[]'::json) AS items`
@@ -420,11 +430,13 @@ export class SignSetService {
   }
 
   async list(q: SignSetListQuery): Promise<Page<SignSetListItem>> {
-    const { total, items } = await this.ids(q, { skip: (q.page - 1) * q.size, take: q.size })
-    const counts = await this.status.counts(
-      this.prisma,
-      items.map((x) => x.id),
-    )
+    const { total, items, counts: snapshot } = await this.ids(q, { skip: (q.page - 1) * q.size, take: q.size })
+    const counts: CountSnapshot =
+      snapshot ??
+      (await this.status.counts(
+        this.prisma,
+        items.map((x) => x.id),
+      ))
     const rows = await this.prisma.signSet.findMany({
       where: { id: { in: items.map((x) => x.id) } },
       select: {
@@ -452,7 +464,7 @@ export class SignSetService {
     return {
       items: items.map(({ id }) => {
         const r = byId.get(id)!
-        const { waiting, invalid } = counts.get(id)!
+        const { waiting, invalid } = counts.get(id) ?? ZERO_COUNTS
         const lines = new Map<string, SignSetListItem['lines'][number]>()
         for (const { route } of r.stop.routeStops)
           lines.set(route.line.id, {
@@ -497,7 +509,7 @@ export class SignSetService {
   }
 
   async summary() {
-    const [row, signSets] = await Promise.all([this.status.summary(this.prisma), this.prisma.signSet.count()])
+    const [row, signSets] = await Promise.all([this.status.summary(), this.prisma.signSet.count()])
     return { ...row, signSets }
   }
 

@@ -15,13 +15,20 @@ import { get } from '@/lib/api'
 export const signSetKey = (stopId: string) => ['sign-sets', 'stop', stopId] as const
 export const templatesKey = ['shelf-templates'] as const
 
-/** fresh：编辑器用，进入时总是重新读取（途经可能已被线路修改改变） */
+export const signSetQuery = (stopId: string) => ({
+  queryKey: signSetKey(stopId),
+  queryFn: () => get<SignSetView>(`/api/stops/${stopId}/sign-set`),
+})
+
+/**
+ * fresh：编辑器用，进入时总是重新读取（途经可能已被线路修改改变）。
+ * 不是 fresh 时不写 staleTime：写成 undefined 会盖掉全局的 15 秒，站点详情刚预取的内容又被重新读一遍
+ */
 export const useSignSet = (stopId: string | undefined, opts: { fresh?: boolean } = {}) =>
   useQuery({
-    queryKey: signSetKey(stopId ?? ''),
-    queryFn: () => get<SignSetView>(`/api/stops/${stopId}/sign-set`),
+    ...signSetQuery(stopId ?? ''),
     enabled: Boolean(stopId),
-    staleTime: opts.fresh ? 0 : undefined,
+    ...(opts.fresh ? { staleTime: 0 } : {}),
   })
 
 export const useSignSetList = (params: Record<string, string | number | undefined>) =>

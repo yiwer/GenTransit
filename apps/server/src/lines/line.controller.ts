@@ -3,11 +3,13 @@ import {
   lineImpactQuery,
   lineInput,
   lineListQuery,
+  lineOptionsQuery,
   lineUpdateInput,
   revInput,
   type LineImpactQuery,
   type LineInput,
   type LineListQuery,
+  type LineOptionsQuery,
   type LineUpdateInput,
   type RevInput,
 } from '@gentransit/shared'
@@ -31,6 +33,12 @@ export class LineController {
   @Get()
   list(@Query(new ZodPipe(lineListQuery)) q: LineListQuery) {
     return this.svc.list(q)
+  }
+
+  /** 线路选择器的轻量选项（M6） */
+  @Get('options')
+  options(@Query(new ZodPipe(lineOptionsQuery)) q: LineOptionsQuery) {
+    return this.svc.options(q)
   }
 
   @Get('check-name')

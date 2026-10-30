@@ -131,8 +131,10 @@ describe('走向轨迹', () => {
     expect(track.points.length).toBeGreaterThan(20)
     expect(JSON.stringify(r)).not.toContain(KEY)
 
+    // 线路列表不带轨迹（Q79），只有站点坐标
     const list = (await api.get('/api/lines').expect(200)).body.items as LineListItem[]
-    expect(list[0].routes[0].track).toEqual(track.points)
+    expect(list[0].routes[0]).not.toHaveProperty('track')
+    expect(list[0].routes[0].path).toHaveLength(20)
 
     expect(await t.prisma.snapshot.count({ where: { objectType: 'line', objectId: line.id } })).toBe(snapshots)
     const after = await t.prisma.line.findUniqueOrThrow({ where: { id: line.id } })
@@ -145,7 +147,7 @@ describe('走向轨迹', () => {
     expect(v1Line.parse(v1).routes[0].track).toMatchObject({ distance: 1900, stale: false })
   })
 
-  it('站序变了以后轨迹标为已过期；列表不再用它', async () => {
+  it('站序变了以后轨迹标为已过期', async () => {
     const line = await mkLine(stops.slice(0, 5).map((s) => s.id))
     const done = (await compute(line.id).expect(200)).body.item as LineDetail
     const reordered = (
@@ -169,8 +171,6 @@ describe('走向轨迹', () => {
         .expect(200)
     ).body.item as LineDetail
     expect(reordered.routes[0].track?.stale).toBe(true)
-    const list = (await api.get('/api/lines').expect(200)).body.items as LineListItem[]
-    expect(list[0].routes[0].track).toBeNull()
   })
 
   it('高德返回错误：给出中文原因，不保存', async () => {

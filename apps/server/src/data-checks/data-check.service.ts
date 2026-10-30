@@ -42,7 +42,7 @@ export class DataCheckService {
     const [stops, sets, summary] = await Promise.all([
       Promise.all(STOP_CHECKS.map((c) => this.prisma.stop.count({ where: stopCheckWhere(c) }))),
       this.lineSets(),
-      this.status.summary(this.prisma),
+      this.status.summary(),
     ])
     return {
       stops: Object.fromEntries(STOP_CHECKS.map((c, i) => [c, stops[i]])) as DataChecks['stops'],

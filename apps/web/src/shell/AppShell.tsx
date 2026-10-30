@@ -1,6 +1,6 @@
 // 应用外壳（F-COM-10）：不设顶栏，导航、全局搜索、主题切换、账号收进左侧窄栏
 import type { Region } from '@gentransit/shared'
-import { useQuery } from '@tanstack/react-query'
+import { useIsFetching, useQuery } from '@tanstack/react-query'
 import {
   Bus,
   Database,
@@ -15,8 +15,9 @@ import {
   Sun,
   UserRound,
 } from 'lucide-react'
-import { useState } from 'react'
-import { NavLink, Outlet, useNavigate } from 'react-router'
+import { useEffect, useState } from 'react'
+import { NavLink, Outlet, useNavigate, useNavigation } from 'react-router'
+import { firstPageLoaded, PageLoading, prefetchPages } from '@/app/pages'
 import { BrandMark } from '@/components/gt/lively'
 import { Kbd } from '@/components/gt/symbols'
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/components/ui/dropdown-menu'
@@ -45,6 +46,8 @@ export function AppShell() {
   useSearchHotkey(() => setSearchOpen(true))
   const regions = useQuery({ queryKey: ['regions'], queryFn: () => get<Region[]>('/api/regions') })
   const city = regions.data?.find((r) => r.level === 'city')?.name
+  const navigation = useNavigation()
+  usePrefetchPages(navigation.state === 'idle')
 
   return (
     <div className="flex h-full">
@@ -134,13 +137,31 @@ export function AppShell() {
         </div>
       </nav>
       <main className="my-2 mr-2 flex min-w-0 flex-1 flex-col overflow-hidden rounded-[18px] bg-surface shadow-xs ring-1 ring-hairline">
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="relative min-h-0 flex-1 overflow-auto">
           <Outlet />
+          {/* 要打开的页面代码还没下载完：原页面上盖一层加载态，外壳不动 */}
+          {navigation.state === 'loading' && <PageLoading delayed />}
         </div>
       </main>
       <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
     </div>
   )
+}
+
+/** 第一个页面加载完、它的请求都返回之后，空闲时预取常用的几组页面（M6 计划 4.3） */
+function usePrefetchPages(navigationIdle: boolean) {
+  const fetching = useIsFetching()
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    let live = true
+    void firstPageLoaded.then(() => live && setReady(true))
+    return () => {
+      live = false
+    }
+  }, [])
+  useEffect(() => {
+    if (ready && navigationIdle && fetching === 0) return prefetchPages()
+  }, [ready, navigationIdle, fetching])
 }
 
 /** 后续里程碑的页面占位 */

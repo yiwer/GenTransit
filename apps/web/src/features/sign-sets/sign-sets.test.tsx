@@ -79,6 +79,10 @@ afterEach(() => vi.unstubAllGlobals())
 function renderEditor(v = view()) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: Infinity } } })
   qc.setQueryData(signSetKey('s1'), v)
+  // 编辑器进入时总会重新读取站牌集（fresh）：读取返回同一份内容
+  fetchMock.mockImplementation(async (url: string) =>
+    String(url) === '/api/stops/s1/sign-set' ? Response.json(v) : Response.json([]),
+  )
   qc.setQueryData(keys.dicts, DICTS)
   qc.setQueryData(templatesKey, [])
   const router = createMemoryRouter(

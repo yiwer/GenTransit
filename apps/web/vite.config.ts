@@ -27,5 +27,9 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     chunkSizeWarningLimit: 1200,
+    rollupOptions: {
+      // 按页面分包（M6）：几百字节的公共小块（单个图标等）并进别的包，少几个往返
+      output: { experimentalMinChunkSize: 8 * 1024 },
+    },
   },
 })
