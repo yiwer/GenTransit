@@ -480,7 +480,7 @@ function CompanyDialog({
               <ImagePlus size={18} className="text-ink-4" />
             )}
           </span>
-          <label className="cursor-pointer text-[13px] font-medium text-accent hover:underline">
+          <label className="relative cursor-pointer text-[13px] font-medium text-accent hover:underline">
             {logoUrl ? '更换 logo' : '上传 logo'}
             <input
               type="file"

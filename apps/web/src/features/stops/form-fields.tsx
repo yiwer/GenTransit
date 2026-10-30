@@ -544,7 +544,9 @@ export function PhotoFields({ d, set }: FieldsProps) {
         </div>
       ))}
       {d.photos.length < MAX_STOP_PHOTOS && (
-        <label className="flex h-[84px] w-[112px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-hairline-2 text-[12px] text-ink-3 transition-colors hover:border-accent hover:text-accent">
+        // relative：隐藏的 file input 是 absolute，包裹层不定位时它的包含块会跑到页面外壳，
+        // 在页面底部撑出一段可以滚动的空白（M6 反馈）
+        <label className="relative flex h-[84px] w-[112px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-hairline-2 text-[12px] text-ink-3 transition-colors hover:border-accent hover:text-accent">
           {busy ? <OrbitLoader size={20} /> : <ImagePlus size={18} />}
           添加照片
           <input

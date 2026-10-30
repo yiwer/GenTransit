@@ -270,7 +270,7 @@ function TemplateDialog({
                   <ImagePlus size={16} className="text-ink-4" />
                 )}
               </span>
-              <label className="cursor-pointer text-[13px] font-medium text-accent hover:underline">
+              <label className="relative cursor-pointer text-[13px] font-medium text-accent hover:underline">
                 {imageUrl ? '更换' : '上传'}
                 <input
                   type="file"

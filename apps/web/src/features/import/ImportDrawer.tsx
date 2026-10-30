@@ -329,7 +329,7 @@ export function ImportDrawer({
           >
             <FileSpreadsheet size={15} /> 下载{label}导入模板
           </a>
-          <label className="flex cursor-pointer flex-col items-center gap-2 rounded-2xl border border-dashed border-hairline-2 px-6 py-8 text-center hover:border-accent">
+          <label className="relative flex cursor-pointer flex-col items-center gap-2 rounded-2xl border border-dashed border-hairline-2 px-6 py-8 text-center hover:border-accent">
             <Upload size={20} className="text-ink-3" />
             <span className="text-[13.5px] text-ink">
               {file ? file.name : '选择 Excel 文件（.xlsx，不超过 20 MB）'}

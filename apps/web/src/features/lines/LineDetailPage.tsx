@@ -588,7 +588,7 @@ function ArrangeDot({ status }: { status?: ArrangeStatus }) {
   if (!status) return <span className="w-3 shrink-0" />
   return (
     <span
-      className="flex w-3 shrink-0 justify-center"
+      className="relative flex w-3 shrink-0 justify-center"
       title={`本线路在该站：${ARRANGE_LABEL[status]}`}
       data-testid={`arrange-${status}`}
     >
