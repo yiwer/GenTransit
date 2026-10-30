@@ -9,6 +9,9 @@ ENV CI=true
 RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 RUN corepack enable
 WORKDIR /src
+# 可选换源：慢网络时 --build-arg NPM_REGISTRY=镜像地址（deploy/build.sh 的 GT_NPM_REGISTRY）
+ARG NPM_REGISTRY=""
+RUN if [ -n "$NPM_REGISTRY" ]; then printf 'registry=%s\n' "$NPM_REGISTRY" > .npmrc; fi
 # 先只复制清单安装依赖，源码变化时复用这一层
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/server/package.json apps/server/

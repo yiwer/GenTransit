@@ -187,6 +187,7 @@ bash deploy/drill.sh
 - **地图是灰色示意平面：** 没有配置 `AMAP_JSAPI_KEY` 或 `AMAP_JSAPI_SECURITY_CODE`（两个都要有）；或者 JS API Key 的域名白名单里没有当前访问的域名。
 - **站点表单没有区划建议：** 没有配置 `AMAP_WEB_SERVICE_KEY`，或者容器访问不到 `restapi.amap.com`。
 - **构建时 apt、npm 连不上 `127.0.0.1:端口`：** Docker 客户端配置里的代理会传进构建容器，而容器里的 127.0.0.1 是容器自己。执行 `GT_BUILD_PROXY=direct bash deploy/build.sh`（不用代理）或 `GT_BUILD_PROXY=http://代理地址:端口 bash deploy/build.sh`。
+- **构建时 npm 下载慢：** 换安装源构建，例如腾讯云内网 `GT_NPM_REGISTRY=https://mirrors.tencentyun.com/npm bash deploy/build.sh`。
 - **登录后马上被踢回登录页（HTTPS 下）：** 反向代理没有传 `X-Forwarded-Proto`，或者它的地址不在 `TRUST_PROXY` 里。
 - **备份失败：** 看"设置 → 备份"的错误信息与 `backups/failures/`；常见是磁盘满了。处理后可以手动备份一次确认。
 - **Windows 上运行脚本：** 用 Git Bash 执行 `bash deploy/*.sh`。仓库的 `.gitattributes` 保证脚本是 LF 换行。

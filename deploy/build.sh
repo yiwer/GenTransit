@@ -19,6 +19,8 @@ if [ -n "${GT_BUILD_PROXY:-}" ]; then
   [ "$p" = direct ] && p=''
   for k in HTTP_PROXY HTTPS_PROXY http_proxy https_proxy; do proxy_args+=(--build-arg "$k=$p"); done
 fi
+# 慢网络时换 npm 安装源，例如：GT_NPM_REGISTRY=https://mirrors.tencentyun.com/npm bash deploy/build.sh
+if [ -n "${GT_NPM_REGISTRY:-}" ]; then proxy_args+=(--build-arg "NPM_REGISTRY=${GT_NPM_REGISTRY}"); fi
 
 echo "构建 gentransit:${tag} …" >&2
 docker build "${proxy_args[@]}" --build-arg "APP_VERSION=${tag}" -t "gentransit:${tag}" -t gentransit:latest . >&2
