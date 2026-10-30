@@ -53,6 +53,12 @@ export class LineController {
     return this.svc.transfers(id, q.routeId)
   }
 
+  /** 沿线编排进度（需求 5.4.6，M5） */
+  @Get(':id/arrangement')
+  arrangement(@Param('id', ParseUUIDPipe) id: string) {
+    return this.svc.arrangement(id)
+  }
+
   @Get(':id/impact')
   impact(@Param('id', ParseUUIDPipe) id: string, @Query(new ZodPipe(lineImpactQuery)) q: LineImpactQuery) {
     return this.svc.impact(id, q.kinds)

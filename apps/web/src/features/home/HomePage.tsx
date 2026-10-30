@@ -21,8 +21,10 @@ import { BreathingDot, OrbitLoader, SnapshotStack } from '@/components/gt/lively
 import { DirBadge, RoutePlate, StatusChip, Tag } from '@/components/gt/symbols'
 import { BackupAlert } from '@/features/settings/BackupTab'
 import { useSignSetList, useSignSetSummary } from '@/features/sign-sets/data'
+import { editorHref } from '@/features/sign-sets/queue'
 import { get } from '@/lib/api'
 import { cn, fmtDateTime } from '@/lib/utils'
+import { DataChecks } from './DataChecks'
 
 const SPEC = { stop: STOP_DIFF_SPEC, line: LINE_DIFF_SPEC, signSet: SIGN_SET_DIFF_SPEC }
 const WEEK = '日一二三四五六'
@@ -100,7 +102,7 @@ function Pending() {
               <li key={x.id}>
                 <button
                   type="button"
-                  onClick={() => nav(`/sign-sets/${x.stop.id}`)}
+                  onClick={() => nav(editorHref(x.stop.id, 'home'))}
                   className="group flex w-full items-center gap-3 border-b border-dashed border-hairline-2 py-2.5 text-left last:border-0"
                 >
                   <span className="w-5 text-right font-mono text-[12px] text-ink-4">{i + 1}</span>
@@ -348,6 +350,7 @@ export function HomePage() {
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] gap-12 px-10 pb-8 pt-4">
         <div className="flex min-h-0 flex-col gap-8">
           <Pending />
+          <DataChecks />
           <section aria-label="快捷新建" className="mt-auto">
             <div className="eyebrow mb-2">快捷新建</div>
             <div className="flex gap-3">

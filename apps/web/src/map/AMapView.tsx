@@ -8,6 +8,7 @@ import { cn, useStored } from '@/lib/utils'
 import { BASEMAP_KEY, BaseMapSwitch, type BaseMap } from './basemap'
 import { MapOverlay, ZoomControls } from './overlay'
 import { PlaneMap } from './PlaneMap'
+import { saveView, zoomOf, type StartView } from './initial-view'
 import { DEFAULT_CENTER, LABEL_MAX_MPP, type LngLat, type MapProps } from './types'
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- 高德 JS API 没有官方类型 */
@@ -89,7 +90,7 @@ function focus(AMap: any, map: any, pts: LngLat[]) {
   map.setZoomAndCenter(zoom, center, false, FOCUS_MS)
 }
 
-export function AMapView(props: MapProps & { amapKey: string }) {
+export function AMapView(props: MapProps & { amapKey: string; start?: StartView }) {
   const { amapKey, points = [], circles = [], routes = [], marker, onPick, fit, className, overlay } = props
   const holder = useRef<HTMLDivElement>(null)
   const wrap = useRef<HTMLDivElement>(null)
@@ -98,6 +99,8 @@ export function AMapView(props: MapProps & { amapKey: string }) {
   const tiles = useRef<{ satellite?: any; roadNet?: any }>({})
   const pickRef = useRef(onPick)
   pickRef.current = onPick
+  const viewportRef = useRef(props.onViewport)
+  viewportRef.current = props.onViewport
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
   const [, setTick] = useState(0)
@@ -113,8 +116,8 @@ export function AMapView(props: MapProps & { amapKey: string }) {
         AMapRef.current = AMap
         const map = new AMap.Map(holder.current, {
           viewMode: '2D',
-          zoom: 13,
-          center: DEFAULT_CENTER,
+          zoom: props.start ? zoomOf(props.start) : 13,
+          center: props.start ? [props.start.lng, props.start.lat] : DEFAULT_CENTER,
           mapStyle: document.documentElement.classList.contains('dark') ? STYLE.dark : STYLE.light,
           features: FEATURES.plain,
           showLabel: true,
@@ -136,9 +139,28 @@ export function AMapView(props: MapProps & { amapKey: string }) {
         map.add(hook)
         map.on('resize', bump)
         map.on('click', (e: any) => pickRef.current?.(e.lnglat.getLng(), e.lnglat.getLat()))
+        // 平移、缩放结束：记下视野（F-COM-18），并告诉使用方（地图点选加站）
+        const report = () => {
+          const b = map.getBounds()
+          const c = map.getCenter()
+          const mpp = map.getResolution()
+          saveView({ lng: c.getLng(), lat: c.getLat(), mpp })
+          viewportRef.current?.(
+            [
+              b.getSouthWest().getLng(),
+              b.getSouthWest().getLat(),
+              b.getNorthEast().getLng(),
+              b.getNorthEast().getLat(),
+            ],
+            mpp,
+          )
+        }
+        map.on('moveend', report)
+        map.on('zoomend', report)
         map.on('complete', () => {
           setReady(true)
           bump()
+          report()
         })
       })
       .catch((e) => !dead && setFailed(String(e?.message ?? e)))
@@ -148,6 +170,8 @@ export function AMapView(props: MapProps & { amapKey: string }) {
       mapRef.current = null
       tiles.current = {}
     }
+    // start 只决定建图时的初始视野，之后由用户平移缩放
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amapKey])
 
   // 底图：矢量底图换样式与要素；卫星与路网是叠在上面的瓦片图层

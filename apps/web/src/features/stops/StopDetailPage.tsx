@@ -1,4 +1,5 @@
-// 站点详情（5.3.4）：独立页面，左内容、右地图。顶部返回、修改历史、编辑、站牌集；更多菜单里放删除
+// 站点详情（5.3.4）：独立页面，左内容、右地图。顶部返回、修改历史、编辑、站牌集；更多菜单里放删除。
+// M5：更多菜单加新建对向站点、加入线路、在线路中替换；刚新建时顶部出现"下一步"卡片；删除被拒时可直接替换
 import {
   STOP_DIFF_SPEC,
   formatExtValue,
@@ -9,7 +10,19 @@ import {
   type StopSection,
 } from '@gentransit/shared'
 import { useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ArrowUpRight, Copy, MoreHorizontal, Pencil, Signpost, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowLeftRight,
+  ArrowUpRight,
+  Copy,
+  ListPlus,
+  MoreHorizontal,
+  Pencil,
+  Replace,
+  Signpost,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { ReferrerList } from '@/components/gt/confirm'
@@ -26,10 +39,13 @@ import { useExtFields, useLandmarks } from '@/features/common/data'
 import { useSignSet } from '@/features/sign-sets/data'
 import { SignSetGlance } from '@/features/sign-sets/SignSetPreview'
 import { del, get, isApiError } from '@/lib/api'
+import { useNavStateOnce } from '@/lib/nav-state'
 import { fmtDateTime } from '@/lib/utils'
 import { MapView } from '@/map/MapView'
 import { RouteLegend } from '@/map/RouteLegend'
 import { isReturnKind, lineColor } from '@/map/routeStyle'
+import { JoinLinesDialog } from './JoinLinesDialog'
+import { ReplaceDialog } from './ReplaceDialog'
 import { kindLabel, regionText, useStop } from './shared'
 
 export function StopDetailPage() {
@@ -63,6 +79,11 @@ function Detail({ stop }: { stop: StopDetail }) {
   const ext = useExtFields('stop')
   const landmarks = useLandmarks()
   const [delCheck, setDelCheck] = useState<DeleteCheck | null>(null)
+  const [joinOpen, setJoinOpen] = useState(false)
+  const [replaceOpen, setReplaceOpen] = useState(false)
+  // 刚新建时的"下一步"卡片（需求 5.3.3）：只出现一次，关闭或刷新后不再出现
+  const navState = useNavStateOnce<{ created: boolean; oppositeOf?: string }>()
+  const [nextOpen, setNextOpen] = useState(Boolean(navState.created))
   // 悬停经过线路时，地图上强调该走向并显示行驶方向
   const [hoverRoute, setHoverRoute] = useState<string | null>(null)
   const label = stopLabel(stop)
@@ -112,6 +133,15 @@ function Detail({ stop }: { stop: StopDetail }) {
               </IconButton>
             </MenuTrigger>
             <MenuContent>
+              <MenuItem onSelect={() => nav(`/stops/new?oppositeOf=${stop.id}`)}>
+                <ArrowLeftRight size={14} /> 新建对向站点
+              </MenuItem>
+              <MenuItem onSelect={() => setJoinOpen(true)}>
+                <ListPlus size={14} /> 加入线路…
+              </MenuItem>
+              <MenuItem onSelect={() => setReplaceOpen(true)} disabled={stop.routes.length === 0}>
+                <Replace size={14} /> 在线路中替换为…
+              </MenuItem>
               <MenuItem danger onSelect={() => void askDelete()}>
                 <Trash2 size={14} /> 删除站点
               </MenuItem>
@@ -136,6 +166,47 @@ function Detail({ stop }: { stop: StopDetail }) {
             <span className="text-ink-3">最近修改 {fmtDateTime(stop.updatedAt)}</span>
           </div>
         </header>
+
+        {nextOpen && (
+          <NextSteps
+            onClose={() => setNextOpen(false)}
+            items={[
+              ...(navState.oppositeOf
+                ? [
+                    {
+                      key: 'copy',
+                      icon: <Copy size={15} />,
+                      title: '照着原站复制站牌集',
+                      sub: '结构与编排一并带过来',
+                      run: () => nav(`/sign-sets/${stop.id}?copyFrom=${navState.oppositeOf}`),
+                    },
+                  ]
+                : [
+                    {
+                      key: 'shelf',
+                      icon: <Signpost size={15} />,
+                      title: '装站牌',
+                      sub: '进站牌集编辑器',
+                      run: () => nav(`/sign-sets/${stop.id}`),
+                    },
+                  ]),
+              {
+                key: 'opp',
+                icon: <ArrowLeftRight size={15} />,
+                title: '新建对向站点',
+                sub: '带入站名、区划与设施',
+                run: () => nav(`/stops/new?oppositeOf=${stop.id}`),
+              },
+              {
+                key: 'join',
+                icon: <ListPlus size={15} />,
+                title: '加入线路',
+                sub: '按位置插进经过的线路',
+                run: () => setJoinOpen(true),
+              },
+            ]}
+          />
+        )}
 
         <section className="mb-8">
           <SectionTitle
@@ -311,9 +382,18 @@ function Detail({ stop }: { stop: StopDetail }) {
               </Button>
             </>
           ) : (
-            <Button variant="primary" onClick={() => setDelCheck(null)}>
-              知道了
-            </Button>
+            <>
+              <Button onClick={() => setDelCheck(null)}>知道了</Button>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  setDelCheck(null)
+                  setReplaceOpen(true)
+                }}
+              >
+                <Replace size={14} /> 替换为其他站点
+              </Button>
+            </>
           )
         }
       >
@@ -323,11 +403,21 @@ function Detail({ stop }: { stop: StopDetail }) {
           </p>
         ) : (
           <>
-            <p>它仍被这些线路的站序引用。先在线路里移除这个站点，再回来删除。</p>
-            {delCheck && <ReferrerList referrers={delCheck.referrers} />}
+            <p>它仍被这些线路的站序引用。可以在线路里移除它，或者直接替换成别的站点。</p>
+            {delCheck && (
+              <ReferrerList
+                referrers={delCheck.referrers}
+                hrefOf={(r) => {
+                  const lineId = stop.routes.find((x) => x.routeId === r.id)?.lineId
+                  return lineId ? `/lines/${lineId}` : undefined
+                }}
+              />
+            )}
           </>
         )}
       </Dialog>
+      <JoinLinesDialog open={joinOpen} onOpenChange={setJoinOpen} stop={stop} />
+      <ReplaceDialog open={replaceOpen} onOpenChange={setReplaceOpen} stop={stop} onDelete={() => void askDelete()} />
     </div>
   )
 
@@ -410,6 +500,45 @@ function SignSetSection({ stop, onOpen }: { stop: StopDetail; onOpen: () => void
             <OrbitLoader size={18} /> 正在读取站牌集…
           </div>
         )}
+      </div>
+    </section>
+  )
+}
+
+/** 刚新建站点后的"下一步"卡片：几个顺手的去处，可关闭 */
+function NextSteps({
+  items,
+  onClose,
+}: {
+  items: { key: string; icon: ReactNode; title: string; sub: string; run: () => void }[]
+  onClose: () => void
+}) {
+  return (
+    <section
+      aria-label="下一步"
+      className="gt-rise relative mb-8 rounded-2xl bg-accent-soft/50 p-4 ring-1 ring-accent/25"
+      data-testid="next-steps"
+    >
+      <div className="mb-2.5 flex items-center gap-2">
+        <span className="eyebrow">站点已新建 · 下一步</span>
+        <IconButton label="关闭" className="ml-auto size-6" onClick={onClose}>
+          <X size={13} />
+        </IconButton>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {items.map((x) => (
+          <button
+            key={x.key}
+            type="button"
+            onClick={x.run}
+            className="group flex flex-col items-start gap-1 rounded-xl bg-surface px-3 py-2.5 text-left ring-1 ring-hairline transition-all hover:-translate-y-0.5 hover:shadow-float"
+          >
+            <span className="flex items-center gap-1.5 text-[13.5px] font-semibold text-ink group-hover:text-accent">
+              {x.icon} {x.title}
+            </span>
+            <span className="text-[11.5px] text-ink-3">{x.sub}</span>
+          </button>
+        ))}
       </div>
     </section>
   )

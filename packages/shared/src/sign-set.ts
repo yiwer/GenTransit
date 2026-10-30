@@ -735,6 +735,139 @@ export function placeTargets(d: SignSetDraft): PlaceTarget[] {
 export const firstEmptySlot = (d: SignSetDraft, boardId: string) =>
   findBoard(d, boardId)?.board.slots.find((sl) => sl.kind === 'route' && !inSlot(d, sl.id))
 
+/* ---------------- 全部放到、从其他站点复制（M5 计划 2.6） ---------------- */
+
+/**
+ * 待编排全部放到一块站牌：整版站牌放上全部待编排并按自动排序规则排序；
+ * 分片站牌按插片编号依次放进空的线路插片，放不下的留在待编排（left）
+ */
+export function placeAll(
+  src: SignSetDraft,
+  pool: PoolItem[],
+  boardId: string,
+): { draft: SignSetDraft; placed: number; left: number } {
+  const f = findBoard(src, boardId)
+  if (!f) throw new DraftError('站牌不存在')
+  const waiting = pool.filter((p) => p.status === 'waiting')
+  let d = src
+  if (f.board.kind === 'whole') {
+    for (const p of waiting) d = placeOnBoard(d, p, boardId)
+    const info = new Map(pool.map((p) => [p.routeId, p]))
+    return { draft: autoSort(d, boardId, (id) => info.get(id)), placed: waiting.length, left: 0 }
+  }
+  let placed = 0
+  for (const p of waiting) {
+    const slot = firstEmptySlot(d, boardId)
+    if (!slot) break
+    d = placeOnSlot(d, p, slot.id).draft
+    placed++
+  }
+  return { draft: d, placed, left: waiting.length - placed }
+}
+
+export interface CopyResult {
+  draft: SignSetDraft
+  shelves: number
+  boards: number
+  /** 带过来的编排条数 */
+  mapped: number
+  /** 没带过来、相应途经留在待编排的编排条数 */
+  skipped: number
+}
+
+/**
+ * 从其他站点复制站牌集（BR-21）：对方站架按排列顺序追加，站架、站牌编号取下一个可用值，插片编号不变，ID 全部新生成；
+ * 对方编排所属的线路在本站恰有一次途经、且这次途经还是待编排时，放到复制出来的对应站牌或插片上（隐藏的同样隐藏）
+ */
+export function copySignSet(
+  target: SignSetDraft,
+  source: Pick<SignSetDraft, 'shelves' | 'schedules'>,
+  opts: { sourceRoutes: Pick<RouteInfo, 'id' | 'lineId'>[]; targetPool: PoolItem[] },
+): CopyResult {
+  const d = clone(target)
+  const shelfNos = d.shelves.map((s) => s.no)
+  const boardNos = usedBoardNos(d)
+  const boardCount = source.shelves.reduce((n, s) => n + s.boards.length, 0)
+  if (shelfNos.length + source.shelves.length > SHELF_NO_MAX)
+    throw new DraftError(
+      `站架编号 1–${SHELF_NO_MAX} 只剩 ${SHELF_NO_MAX - shelfNos.length} 个，放不下对方的 ${source.shelves.length} 个站架`,
+    )
+  if (boardNos.length + boardCount > BOARD_NO_MAX)
+    throw new DraftError(
+      `站牌编号 1–${BOARD_NO_MAX} 只剩 ${BOARD_NO_MAX - boardNos.length} 个，放不下对方的 ${boardCount} 块站牌`,
+    )
+
+  const boardMap = new Map<string, string>()
+  const slotMap = new Map<string, string>()
+  for (const s of source.shelves) {
+    const no = nextNo(shelfNos, SHELF_NO_MAX)!
+    shelfNos.push(no)
+    d.shelves.push({
+      ...s,
+      id: newId(),
+      no,
+      boards: s.boards.map((b) => {
+        const bno = nextNo(boardNos, BOARD_NO_MAX)!
+        boardNos.push(bno)
+        const id = newId()
+        boardMap.set(b.id, id)
+        return {
+          ...b,
+          id,
+          no: bno,
+          slots: b.slots.map((sl) => {
+            const sid = newId()
+            slotMap.set(sl.id, sid)
+            return { ...sl, id: sid }
+          }),
+        }
+      }),
+    })
+  }
+
+  // 本站每条线路的途经（失效的不算）；恰有一条且还没有编排时才映射
+  const lineOf = new Map(opts.sourceRoutes.map((r) => [r.id, r.lineId]))
+  const byLine = new Map<string, PoolItem[]>()
+  for (const p of opts.targetPool)
+    if (p.status !== 'invalid') byLine.set(p.lineId, [...(byLine.get(p.lineId) ?? []), p])
+  /** 本次复制里每条途经的去向：hidden 与放置互斥 */
+  const used = new Map<string, 'hidden' | 'placed'>()
+  let mapped = 0
+  const ordered = [...source.schedules].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+  for (const s of ordered) {
+    const lineId = lineOf.get(s.routeId)
+    const cands = lineId ? (byLine.get(lineId) ?? []) : []
+    const p = cands.length === 1 && cands[0].status === 'waiting' ? cands[0] : undefined
+    const kind = s.placement === 'hidden' ? 'hidden' : 'placed'
+    if (!p || (used.has(p.key) && used.get(p.key) !== kind)) continue
+    const boardId = s.boardId ? boardMap.get(s.boardId) : undefined
+    const slotId = s.slotId ? slotMap.get(s.slotId) : undefined
+    if (s.placement === 'hidden') {
+      if (used.has(p.key)) continue
+    } else if (!boardId || (s.placement === 'slot' && !slotId)) continue
+    else if (d.schedules.some((x) => keyOf(x) === p.key && x.boardId === boardId)) continue
+    d.schedules.push({
+      id: newId(),
+      routeId: p.routeId,
+      pass: p.pass,
+      placement: s.placement,
+      boardId: s.placement === 'hidden' ? null : boardId!,
+      slotId: s.placement === 'slot' ? slotId! : null,
+      order: s.placement === 'board' ? (s.order ?? 0) : null,
+    })
+    used.set(p.key, kind)
+    mapped++
+  }
+  renumber(d)
+  return {
+    draft: d,
+    shelves: source.shelves.length,
+    boards: boardCount,
+    mapped,
+    skipped: source.schedules.length - mapped,
+  }
+}
+
 /* ---------------- 校验 ---------------- */
 
 export interface SignSetIssue {
@@ -1061,6 +1194,9 @@ export interface SignSetStop {
   id: string
   name: string
   direction: string
+  /** 编辑器视图带坐标（从其他站点复制时按距离找站） */
+  lng?: number
+  lat?: number
 }
 
 /** 编辑器与预览：站牌集内容 + 当前途经清单 + 计数 */

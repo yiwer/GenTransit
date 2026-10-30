@@ -1,11 +1,13 @@
 // 站点新建与编辑（5.3.3）：左侧属性表、右侧地图。底部固定状态栏显示"未保存：改了哪些字段"；
-// 选点后给出逆地理编码建议（确认后才填入）；站名 + 方位重复即时提示；未保存离开前提示；保存冲突弹窗（AC-10）
+// 选点后给出逆地理编码建议（确认后才填入）；站名 + 方位重复即时提示；未保存离开前提示；保存冲突弹窗（AC-10）。
+// M5：/stops/new?oppositeOf=<站点 id> 新建对向站点（带入字段、地图以原站为中心）；Ctrl+S 保存
 import {
   STOP_DIFF_SPEC,
   roundCoord,
   stopLabel,
   stopSnapshot,
   type LandmarkCandidate,
+  type OppositeMap,
   type Region,
   type RegeoResult,
   type SaveResult,
@@ -15,7 +17,7 @@ import {
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useBlocker, useNavigate, useParams } from 'react-router'
+import { Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router'
 import { HistoryButton } from '@/components/gt/history'
 import { OrbitLoader } from '@/components/gt/lively'
 import { ConflictDialog, useSaveFlow } from '@/components/gt/save'
@@ -28,7 +30,17 @@ import { useAppConfig } from '@/features/auth/auth'
 import { keys, useDicts, useExtFields, useLandmarks, useRegions, useSettings } from '@/features/common/data'
 import { get, isApiError, post, put } from '@/lib/api'
 import { MapView } from '@/map/MapView'
-import { blankDraft, changedFields, draftOf, snapshotOf, toInput, validate, type Draft, type Lookups } from './draft'
+import {
+  blankDraft,
+  changedFields,
+  draftOf,
+  oppositeDraftOf,
+  snapshotOf,
+  toInput,
+  validate,
+  type Draft,
+  type Lookups,
+} from './draft'
 import {
   BasicFields,
   FacilityFields,
@@ -42,16 +54,25 @@ import { stopKey, useStop } from './shared'
 
 export function StopFormPage() {
   const { id } = useParams()
+  const [sp] = useSearchParams()
+  const oppositeOf = id ? undefined : (sp.get('oppositeOf') ?? undefined)
   const stop = useStop(id)
+  const source = useStop(oppositeOf)
   const settings = useSettings()
-  if ((id && stop.isPending) || settings.isPending)
+  if ((id && stop.isPending) || (oppositeOf && source.isPending) || settings.isPending)
     return (
       <div className="flex h-full items-center justify-center gap-2 text-ink-3">
         <OrbitLoader size={22} /> 正在读取…
       </div>
     )
   if (id && !stop.data) return <div className="p-10 text-center text-ink-3">站点不存在</div>
-  return <StopForm key={id ?? 'new'} original={stop.data ?? null} />
+  return (
+    <StopForm
+      key={id ?? `new:${oppositeOf ?? ''}`}
+      original={stop.data ?? null}
+      oppositeOf={oppositeOf ? (source.data ?? null) : null}
+    />
+  )
 }
 
 const SECTIONS = [
@@ -72,7 +93,7 @@ function useDebounced<T>(value: T, ms: number) {
   return v
 }
 
-function StopForm({ original: initial }: { original: StopDetail | null }) {
+function StopForm({ original: initial, oppositeOf }: { original: StopDetail | null; oppositeOf: StopDetail | null }) {
   const nav = useNavigate()
   const qc = useQueryClient()
   const toast = useToast()
@@ -88,7 +109,14 @@ function StopForm({ original: initial }: { original: StopDetail | null }) {
     () => (original ? draftOf(original) : blankDraft(settings.orientationMode === 'orientation' ? '东' : '')),
     [original, settings.orientationMode],
   )
-  const [d, setD] = useState<Draft>(base)
+  const [d, setD] = useState<Draft>(() => (oppositeOf ? oppositeDraftOf(oppositeOf, settings.orientationMode) : base))
+  // 新建对向站点：原站 300 米内已有对向站时提示（不阻止新建）
+  const existing = useQuery({
+    queryKey: ['stops', 'opposites', oppositeOf?.id],
+    queryFn: () => post<OppositeMap>('/api/stops/opposites', { ids: [oppositeOf!.id] }),
+    enabled: Boolean(oppositeOf),
+  })
+  const already = oppositeOf ? existing.data?.[oppositeOf.id] : null
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((x) => ({ ...x, [k]: v }))
   const patch = (p: Partial<Draft>) => setD((x) => ({ ...x, ...p }))
   const isNew = !original
@@ -194,7 +222,7 @@ function StopForm({ original: initial }: { original: StopDetail | null }) {
       await qc.invalidateQueries({ queryKey: ['stops', 'list'] })
       await qc.invalidateQueries({ queryKey: ['snapshots', 'stop', r.item.id] })
       leaving.current = true
-      nav(`/stops/${r.item.id}`)
+      nav(`/stops/${r.item.id}`, isNew ? { state: { created: true, oppositeOf: oppositeOf?.id } } : undefined)
     } catch {
       // 错误已经提示
     } finally {
@@ -273,10 +301,29 @@ function StopForm({ original: initial }: { original: StopDetail | null }) {
       </div>
       <div className="min-h-0 flex-1 overflow-auto px-7 pb-10">
         <div className="pb-5 pt-2">
-          <div className="eyebrow">{isNew ? '新建站点' : '编辑站点'}</div>
+          <div className="eyebrow">{oppositeOf ? '新建对向站点' : isNew ? '新建站点' : '编辑站点'}</div>
           <h1 className="mt-1 font-display text-[28px] font-bold leading-9">
             {d.name || (isNew ? '未命名站点' : original!.name)}
           </h1>
+          {oppositeOf && (
+            <div className="mt-1.5 flex items-center gap-2 text-[13px] text-ink-2" data-testid="opposite-of">
+              <OppositePair from={oppositeOf.direction} to={d.direction} />
+              对向于
+              <Link to={`/stops/${oppositeOf.id}`} className="font-display font-semibold hover:text-accent">
+                {stopLabel(oppositeOf)}
+              </Link>
+              <span className="text-ink-3">· 已带入站名、区划、路段、维护公司、站台设施</span>
+            </div>
+          )}
+          {already && (
+            <p className="mt-2 rounded-xl bg-signal-soft/60 px-3 py-2 text-[12.5px] text-ink ring-1 ring-signal/30">
+              原站 300 米内已有
+              <Link to={`/stops/${already.id}`} className="mx-1 font-semibold text-signal-ink hover:underline">
+                {stopLabel(already)}
+              </Link>
+              ，确认还要再建一个吗？
+            </p>
+          )}
         </div>
         <section id="sec-basic" className="mb-7">
           <SectionTitle>基本信息</SectionTitle>
@@ -346,10 +393,34 @@ function StopForm({ original: initial }: { original: StopDetail | null }) {
             marker={d.lng !== null && d.lat !== null ? { lng: d.lng, lat: d.lat } : null}
             onPick={pick}
             circles={circles}
-            fit={original ? { key: original.id, points: [[original.lng, original.lat]] } : { key: 'new', points: [] }}
+            points={
+              oppositeOf
+                ? [
+                    {
+                      id: oppositeOf.id,
+                      lng: oppositeOf.lng,
+                      lat: oppositeOf.lat,
+                      label: oppositeOf.name,
+                      sub: `${oppositeOf.direction} · 原站`,
+                      tone: 'faint',
+                    },
+                  ]
+                : undefined
+            }
+            fit={
+              original
+                ? { key: original.id, points: [[original.lng, original.lat]] }
+                : oppositeOf
+                  ? { key: `opp:${oppositeOf.id}`, points: [[oppositeOf.lng, oppositeOf.lat]] }
+                  : { key: 'new', points: [] }
+            }
             overlay={
               <div className="pointer-events-none absolute bottom-10 left-1/2 -translate-x-1/2 rounded-full bg-ink/85 px-3.5 py-1.5 text-[12.5px] text-paper shadow-float">
-                {d.lng !== null ? '拖动标记或点击地图修改位置' : '点击地图放置站点'}
+                {d.lng !== null
+                  ? '拖动标记或点击地图修改位置'
+                  : oppositeOf
+                    ? '点击马路对面放置对向站点'
+                    : '点击地图放置站点'}
               </div>
             }
           />
@@ -387,5 +458,28 @@ function StopForm({ original: initial }: { original: StopDetail | null }) {
         />
       )}
     </>
+  )
+}
+
+/** 一对相对的方位章：原站在左（空心），新站在右（实心），中间两道弧表示"隔着马路" */
+function OppositePair({ from, to }: { from: string; to: string }) {
+  return (
+    <span className="inline-flex items-center gap-0.5" aria-hidden="true">
+      <span className="flex size-5 items-center justify-center rounded-full text-[10.5px] font-semibold text-accent ring-1 ring-accent">
+        {from.slice(0, 1)}
+      </span>
+      <svg viewBox="0 0 12 14" width={12} height={14}>
+        <path
+          d="M3 3 Q6 0.5 9 3 M9 11 Q6 13.5 3 11"
+          fill="none"
+          stroke="var(--ink-3)"
+          strokeWidth="1.1"
+          strokeLinecap="round"
+        />
+      </svg>
+      <span className="flex size-5 items-center justify-center rounded-full bg-accent text-[10.5px] font-semibold text-accent-ink">
+        {to.slice(0, 1) || '?'}
+      </span>
+    </span>
   )
 }

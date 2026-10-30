@@ -4,12 +4,14 @@ import {
   DICT_CATEGORIES,
   EXT_OWNERS,
   EXT_TYPES,
+  LINE_CHECKS,
   LINE_MODE_LABEL,
   LINE_MODES,
   ORIENTATION_MODES,
   REGION_LEVELS,
   ROUTE_KIND_LABEL,
   ROUTE_KINDS,
+  STOP_CHECKS,
   STOP_SECTIONS,
 } from './enums'
 import { LINE_STATUSES, MODE_ROUTE_KINDS, SERVICE_TYPES, TICKET_TYPES, TIME_RE, timesInOrder } from './line'
@@ -195,6 +197,15 @@ export const stopListQuery = z.object({
     .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
     .pipe(z.array(z.uuid()).max(50).optional()),
   sort: z.enum(['name', '-name', 'updatedAt', '-updatedAt']).default('name'),
+  /** 按离这个点（"经度,纬度"）的距离排序，优先于 sort（M5 加站辅助） */
+  near: z
+    .string()
+    .trim()
+    .regex(/^-?\d+(\.\d+)?,-?\d+(\.\d+)?$/, 'near 格式为 经度,纬度')
+    .optional()
+    .transform((v) => (v ? (v.split(',').map(Number) as [number, number]) : undefined)),
+  /** 数据体检的检查项（M5） */
+  check: z.enum(STOP_CHECKS).optional(),
   ...pageQuery,
 })
 export type StopListQuery = z.infer<typeof stopListQuery>
@@ -274,6 +285,8 @@ export const lineListQuery = z.object({
   stopId: z.uuid().optional(),
   /** auto = 自动排序规则（需求 5.5.6） */
   sort: z.enum(['auto', 'name', 'updatedAt', '-updatedAt']).default('auto'),
+  /** 数据体检的检查项（M5） */
+  check: z.enum(LINE_CHECKS).optional(),
   ...pageQuery,
 })
 export type LineListQuery = z.infer<typeof lineListQuery>

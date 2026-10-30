@@ -1,5 +1,6 @@
 // 线路列表（5.4.2）：列表 + 地图分栏；线路名一律以线路牌显示；悬停或单击一行时地图上强调该线路的走向（F-COM-13）
 import {
+  CHECK_LABEL,
   LINE_DIFF_SPEC,
   LINE_MODE_LABEL,
   LINE_MODES,
@@ -9,6 +10,7 @@ import {
   formatExtValue,
   type ExtFieldDef,
   type LineListItem,
+  type LineCheck,
 } from '@gentransit/shared'
 import { useQuery } from '@tanstack/react-query'
 import { flexRender, getCoreRowModel, useReactTable, type ColumnDef } from '@tanstack/react-table'
@@ -34,7 +36,7 @@ import { isReturnKind, lineColor } from '@/map/routeStyle'
 import type { MapRoute } from '@/map/types'
 import { StatusPill, endpointsText, kindText, useLineList } from './shared'
 
-const FILTER_KEYS = ['q', 'mode', 'status', 'companyId', 'stopId'] as const
+const FILTER_KEYS = ['q', 'mode', 'status', 'companyId', 'stopId', 'check'] as const
 
 function useFilters() {
   const [sp, setSp] = useSearchParams()
@@ -289,6 +291,17 @@ export function LineListPage() {
                           ))}
                         </NativeSelect>
                       </label>
+                      {f.check && (
+                        <button
+                          type="button"
+                          className={chip(true)}
+                          onClick={() => set({ check: null })}
+                          title="清除体检筛选"
+                          data-testid="check-chip"
+                        >
+                          体检：{CHECK_LABEL[f.check as LineCheck] ?? f.check} <X size={12} />
+                        </button>
+                      )}
                       {f.stopId && (
                         <span className={cn(chip(true), 'pr-1')}>
                           经过 {stopName.data ? `${stopName.data.name}（${stopName.data.direction}）` : '站点'}

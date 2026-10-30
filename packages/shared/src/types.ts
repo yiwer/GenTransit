@@ -221,6 +221,8 @@ export interface StopListItem {
   lines: { id: string; name: string; suspended: boolean }[]
   ext: Record<string, unknown>
   updatedAt: string
+  /** 按 near 排序时离该点的距离（米） */
+  distance?: number
 }
 
 export interface StopNameCheck {

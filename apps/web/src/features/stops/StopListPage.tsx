@@ -1,21 +1,25 @@
 // 站点列表（5.3.2）：列表 + 地图分栏。左栏窄时每行显示站名、方位章、经过线路；左栏不小于 760px 时切换为宽表。
 // 地图只画当前页站点；单击定位并浮出摘要卡片，双击或回车进入详情，悬停时地图上临时强调（F-COM-13）
 import {
+  CHECK_LABEL,
   DIRECTIONS,
   STOP_DIFF_SPEC,
   type LineListItem,
   type Page,
   type StopListItem,
   type StopListQuery,
+  type StopCheck,
 } from '@gentransit/shared'
 import { useQuery } from '@tanstack/react-query'
 import { flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import {
   ArrowUpRight,
+  Check,
   ChevronDown,
   Download,
   MoreHorizontal,
   Pencil,
+  PencilLine,
   Plus,
   Search,
   SlidersHorizontal,
@@ -42,9 +46,10 @@ import { cn } from '@/lib/utils'
 import { MapView } from '@/map/MapView'
 import { ColumnPicker, useColumnPrefs, type ColMeta } from '@/components/gt/columns'
 import { STOP_DEFAULT_COLUMNS, stopColumns } from './columns'
+import { BatchEditDialog } from './BatchEditDialog'
 import { Plates, regionText, useStopList } from './shared'
 
-const FILTER_KEYS = ['q', 'dir', 'lineIds', 'districtId', 'streetId', 'roadId', 'maintainerId'] as const
+const FILTER_KEYS = ['q', 'dir', 'lineIds', 'districtId', 'streetId', 'roadId', 'maintainerId', 'check'] as const
 
 /** 筛选条件写入 URL（F-COM-02）；筛选变化时回到第 1 页（F-COM-12） */
 function useFilters() {
@@ -186,6 +191,17 @@ function FilterBar() {
             {d}
           </button>
         ))}
+      {f.check && (
+        <button
+          type="button"
+          className={chip(true)}
+          onClick={() => set({ check: null })}
+          title="清除体检筛选"
+          data-testid="check-chip"
+        >
+          体检：{CHECK_LABEL[f.check as StopCheck] ?? f.check} <X size={12} />
+        </button>
+      )}
       <span className="mx-0.5 h-4 w-px bg-hairline-2" />
       <LineFilter
         value={f.lineIds ? f.lineIds.split(',') : []}
@@ -282,6 +298,29 @@ export function StopListPage() {
   const total = list.data?.total ?? 0
   const selRow = items.find((s) => s.id === sel)
   const open = (id: string) => nav(`/stops/${id}`)
+  // 批量修改的勾选（需求 5.3.2）：跨页保留，换筛选时清空；也可选"当前筛选结果全部"
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [allMatching, setAllMatching] = useState(false)
+  const [batchOpen, setBatchOpen] = useState(false)
+  const filterKey = JSON.stringify(f)
+  useEffect(() => {
+    setPicked(new Set())
+    setAllMatching(false)
+  }, [filterKey])
+  const toggle = (id: string) =>
+    setPicked((p) => {
+      const n = new Set(p)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  const pageAll = items.length > 0 && items.every((s) => picked.has(s.id))
+  const picking = picked.size > 0 || allMatching
+  const batchCount = allMatching ? total : picked.size
+  // 当前筛选（去掉空值），批量修改选"当前筛选结果全部"时用
+  const filter = Object.fromEntries(Object.entries({ ...f, sort }).filter(([, v]) => v)) as {
+    sort: StopListQuery['sort']
+  }
 
   const columns = useMemo(() => stopColumns((ext.data ?? []).filter((x) => x.enabled)), [ext.data])
   const prefs = useColumnPrefs(
@@ -299,7 +338,7 @@ export function StopListPage() {
     },
   })
   const visibleCols = table.getVisibleLeafColumns()
-  const grid = visibleCols.map((c) => (c.columnDef.meta as ColMeta).width).join(' ') + ' 40px'
+  const grid = '22px ' + visibleCols.map((c) => (c.columnDef.meta as ColMeta).width).join(' ') + ' 40px'
 
   const map = (
     <MapView
@@ -423,6 +462,20 @@ export function StopListPage() {
                       className="grid gap-4 border-y border-hairline bg-surface-2 px-6 py-2 text-[11.5px] font-semibold tracking-[0.06em] text-ink-3"
                       style={{ gridTemplateColumns: grid }}
                     >
+                      <Tick
+                        label="勾选本页"
+                        on={pageAll || allMatching}
+                        onClick={() =>
+                          setPicked((p) => {
+                            const n = new Set(p)
+                            for (const s of items) {
+                              if (pageAll) n.delete(s.id)
+                              else n.add(s.id)
+                            }
+                            return n
+                          })
+                        }
+                      />
                       {visibleCols.map((c) => {
                         const sortable = c.id === 'name' || c.id === 'updatedAt'
                         const on = sort.replace('-', '') === c.id
@@ -484,8 +537,27 @@ export function StopListPage() {
                             style={wide ? { gridTemplateColumns: grid } : undefined}
                           >
                             {active && <span className="absolute inset-y-2 left-0 w-[3px] rounded-r-full bg-accent" />}
+                            {!wide && (
+                              <span
+                                className={cn(
+                                  'absolute left-1.5 top-3.5 transition-opacity',
+                                  picking || picked.has(s.id) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100',
+                                )}
+                              >
+                                <Tick
+                                  label={`勾选 ${s.name}（${s.direction}）`}
+                                  on={allMatching || picked.has(s.id)}
+                                  onClick={() => toggle(s.id)}
+                                />
+                              </span>
+                            )}
                             {wide ? (
                               <>
+                                <Tick
+                                  label={`勾选 ${s.name}（${s.direction}）`}
+                                  on={allMatching || picked.has(s.id)}
+                                  onClick={() => toggle(s.id)}
+                                />
                                 {row.getVisibleCells().map((cell) => (
                                   <div key={cell.id} className="flex min-w-0 items-center">
                                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -534,6 +606,39 @@ export function StopListPage() {
                       </li>
                     )}
                   </ul>
+                  {picking && (
+                    <div
+                      className="gt-rise flex shrink-0 flex-wrap items-center gap-2 border-t border-accent/30 bg-accent-soft/60 px-6 py-2 text-[12.5px]"
+                      data-testid="batch-bar"
+                    >
+                      <span className="font-semibold">
+                        已选 {batchCount} 个站点{allMatching && '（当前筛选的全部）'}
+                      </span>
+                      {!allMatching && total > picked.size && (
+                        <button
+                          type="button"
+                          className="text-accent hover:underline"
+                          onClick={() => setAllMatching(true)}
+                        >
+                          选择当前筛选的全部 {total} 个
+                        </button>
+                      )}
+                      <span className="ml-auto flex gap-1.5">
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setPicked(new Set())
+                            setAllMatching(false)
+                          }}
+                        >
+                          取消选择
+                        </Button>
+                        <Button size="sm" variant="primary" onClick={() => setBatchOpen(true)}>
+                          <PencilLine size={13} /> 批量修改
+                        </Button>
+                      </span>
+                    </div>
+                  )}
                   <div className="shrink-0 border-t border-hairline bg-surface-2 px-6 py-2.5">
                     <Pagination
                       page={page}
@@ -552,6 +657,16 @@ export function StopListPage() {
         }}
       />
       <ImportDrawer kind="stop" open={importing} onOpenChange={setImporting} />
+      <BatchEditDialog
+        open={batchOpen}
+        onOpenChange={setBatchOpen}
+        scope={allMatching ? { filter } : { ids: [...picked] }}
+        count={batchCount}
+        onDone={() => {
+          setPicked(new Set())
+          setAllMatching(false)
+        }}
+      />
     </>
   )
 }
@@ -615,5 +730,28 @@ function StopCard({
         </Button>
       </div>
     </div>
+  )
+}
+
+/** 勾选框：点它不触发行的单击（定位） */
+function Tick({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      role="checkbox"
+      aria-checked={on}
+      aria-label={label}
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className={cn(
+        'flex size-4 shrink-0 items-center justify-center rounded ring-1 transition-colors',
+        on ? 'bg-accent text-accent-ink ring-accent' : 'bg-surface ring-hairline-2 hover:ring-accent',
+      )}
+    >
+      {on && <Check size={11} strokeWidth={3} />}
+    </button>
   )
 }

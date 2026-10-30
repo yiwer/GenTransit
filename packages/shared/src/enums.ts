@@ -117,3 +117,9 @@ export const DEFAULT_PAGE_SIZE = 20
 export const MAX_STOP_PHOTOS = 10
 export const UPLOAD_MAX_BYTES = 10 * 1024 * 1024
 export const UPLOAD_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const
+
+/** 数据体检的检查项（M5，需求 5.2）：站点列表、线路列表的 check 筛选 */
+export const STOP_CHECKS = ['noNameEn', 'noRegion', 'noShelf', 'noPhoto'] as const
+export type StopCheck = (typeof STOP_CHECKS)[number]
+export const LINE_CHECKS = ['noTrack', 'trackStale', 'gap', 'wrongSide'] as const
+export type LineCheck = (typeof LINE_CHECKS)[number]

@@ -9,6 +9,10 @@ import {
   lineSnapshot,
   mapRoutesOnModeChange,
   passIndices,
+  stopLabel,
+  type ArrangeStatus,
+  type GroupLineResult,
+  type LineArrangement,
   type LineDeleteCheck,
   type LineDetail,
   type LineImpact,
@@ -22,11 +26,15 @@ import {
   type RouteDetail,
   type RouteKind,
   type SaveResult,
+  type StopJoinInput,
+  type StopReference,
+  type StopReplaceInput,
   type TransferStop,
 } from '@gentransit/shared'
 import { AppError, duplicate, invalid, notFound } from '../common/errors'
 import { validateExt, type ExtDef } from '../common/ext'
-import type { Prisma } from '../generated/prisma/client'
+import { DataCheckService } from '../data-checks/data-check.service'
+import { Prisma } from '../generated/prisma/client'
 import { PrismaService, type Tx } from '../prisma/prisma.service'
 import { SnapshotService } from '../snapshots/snapshot.service'
 import { ROUTE_REMOVAL_HOOK, type RouteRemovalHook } from './route-removal.hook'
@@ -77,6 +85,7 @@ export class LineService {
     private readonly prisma: PrismaService,
     private readonly snapshots: SnapshotService,
     @Inject(ROUTE_REMOVAL_HOOK) private readonly hook: RouteRemovalHook,
+    private readonly checks: DataCheckService,
   ) {}
 
   /* ---------------- 读取 ---------------- */
@@ -185,6 +194,7 @@ export class LineService {
    */
   async list(q: LineListQuery): Promise<Page<LineListItem>> {
     const where: Prisma.LineWhereInput = {
+      id: q.check ? { in: [...(await this.checks.lineIds(q.check))] } : undefined,
       mode: q.mode,
       companyId: q.companyId,
       status: q.status,
@@ -400,36 +410,40 @@ export class LineService {
    */
   async update(id: string, input: LineUpdateInput): Promise<SaveResult<LineDetail>> {
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        const cur = await tx.line.findUnique({ where: { id }, include: DETAIL_INCLUDE })
-        if (!cur) throw notFound('线路')
-        if (cur.rev !== input.rev) throw this.conflict(await this.detail(tx, id))
-        const before = this.toDetail(cur, 0)
-        const existingStopExt = this.stopExtIndex(before, input.mode)
-        const { ext, routeStopExt, defs } = await this.validate(tx, input, before.ext, existingStopExt, id)
-        const n = await tx.line.updateMany({
-          where: { id, rev: input.rev },
-          data: { ...this.lineData(input, ext), rev: { increment: 1 } },
-        })
-        if (n.count === 0) throw this.conflict(await this.detail(tx, id))
-        await this.applyRoutes(tx, before, input, routeStopExt)
-        const detail = await this.detail(tx, id)
-        const content = this.content(detail, defs)
-        const r = await this.snapshots.record(tx, {
-          type: 'line',
-          id,
-          name: detail.name,
-          action: 'update',
-          content,
-          noteFrom: (prev) => `修改：${changedLabels(prev, content, LINE_DIFF_SPEC).join('、')}`,
-        })
-        if (!r.written) throw new NoChange()
-        return { changed: true, item: { ...detail, snapshotCount: detail.snapshotCount + 1 } }
-      })
+      return await this.prisma.$transaction((tx) => this.updateIn(tx, id, input))
     } catch (e) {
       if (e instanceof NoChange) return { changed: false, item: await this.get(id) }
       throw e
     }
+  }
+
+  /** 在给定事务里保存一条线路（成组修改共用）；note 不为空时代替快照说明"修改：字段名"；内容没变抛 NoChange */
+  async updateIn(tx: Tx, id: string, input: LineUpdateInput, note?: string): Promise<SaveResult<LineDetail>> {
+    const cur = await tx.line.findUnique({ where: { id }, include: DETAIL_INCLUDE })
+    if (!cur) throw notFound('线路')
+    if (cur.rev !== input.rev) throw this.conflict(await this.detail(tx, id))
+    const before = this.toDetail(cur, 0)
+    const existingStopExt = this.stopExtIndex(before, input.mode)
+    const { ext, routeStopExt, defs } = await this.validate(tx, input, before.ext, existingStopExt, id)
+    const n = await tx.line.updateMany({
+      where: { id, rev: input.rev },
+      data: { ...this.lineData(input, ext), rev: { increment: 1 } },
+    })
+    if (n.count === 0) throw this.conflict(await this.detail(tx, id))
+    await this.applyRoutes(tx, before, input, routeStopExt)
+    const detail = await this.detail(tx, id)
+    const content = this.content(detail, defs)
+    const r = await this.snapshots.record(tx, {
+      type: 'line',
+      id,
+      name: detail.name,
+      action: 'update',
+      content,
+      note,
+      noteFrom: note ? undefined : (prev) => `修改：${changedLabels(prev, content, LINE_DIFF_SPEC).join('、')}`,
+    })
+    if (!r.written) throw new NoChange()
+    return { changed: true, item: { ...detail, snapshotCount: detail.snapshotCount + 1 } }
   }
 
   /** 旧路径站的扩展字段：键按改模式后的走向名，便于保留停用字段的值 */
@@ -490,6 +504,220 @@ export class LineService {
       }
     }
     return removed
+  }
+
+  /* ---------------- 成组修改：站点加入线路、替换站点（M5 计划 3.2，BR-22） ---------------- */
+
+  /** 当前详情还原成保存用的输入（不改的部分原样带回） */
+  private inputOf(d: LineDetail): LineUpdateInput {
+    return {
+      rev: d.rev,
+      name: d.name,
+      number: d.number,
+      nameEn: d.nameEn,
+      mode: d.mode,
+      companyId: d.company?.id ?? null,
+      ticketType: d.ticketType,
+      fareSystemId: d.fareSystem?.id ?? null,
+      fare: d.fare,
+      ext: d.ext,
+      routes: d.routes.map((r) => ({
+        kind: r.kind,
+        serviceType: r.serviceType,
+        serviceTime: r.serviceTime,
+        interval: r.interval,
+        stops: r.stops.map((s) => ({ stopId: s.stop.id, times: s.times, ext: s.ext })),
+      })),
+    }
+  }
+
+  /** 站点被路径站引用的每一处，带前后站 */
+  async references(stopId: string): Promise<StopReference[]> {
+    if (!(await this.prisma.stop.findUnique({ where: { id: stopId }, select: { id: true } }))) throw notFound('站点')
+    const rows = await this.prisma.routeStop.findMany({
+      where: { stopId },
+      select: {
+        seq: true,
+        route: {
+          select: {
+            kind: true,
+            line: { select: { id: true, name: true, rev: true, status: true } },
+            stops: { orderBy: { seq: 'asc' }, select: { seq: true, stop: { select: STOP_SELECT } } },
+          },
+        },
+      },
+    })
+    return rows
+      .map(({ seq, route }) => {
+        const index = route.stops.findIndex((s) => s.seq === seq)
+        return {
+          lineId: route.line.id,
+          lineName: route.line.name,
+          lineSuspended: route.line.status === 'suspended',
+          rev: route.line.rev,
+          routeKind: route.kind,
+          index,
+          prev: route.stops[index - 1]?.stop ?? null,
+          next: route.stops[index + 1]?.stop ?? null,
+        }
+      })
+      .sort(
+        (a, b) =>
+          compareLineName(a.lineName, b.lineName) ||
+          a.lineId.localeCompare(b.lineId) ||
+          kindOrder(a.routeKind) - kindOrder(b.routeKind) ||
+          a.index - b.index,
+      )
+  }
+
+  /**
+   * 成组修改的公共部分：一个事务里读出各线路当前内容，rev 对不上就整组拒绝（409）；
+   * edit 改写输入，返回 false 表示该线路与打开时不一致（也按冲突处理）；每条线路各存一份"修改"快照
+   */
+  private async group(
+    items: { lineId: string; rev: number }[],
+    note: string,
+    edit: (input: LineUpdateInput, line: LineDetail) => boolean,
+  ): Promise<GroupLineResult> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const ids = [...new Set(items.map((i) => i.lineId))]
+        const lines = new Map((await this.details(tx, ids)).map((d) => [d.id, d]))
+        const conflict = (stale: string[]) =>
+          new AppError(
+            409,
+            ERROR_CODES.conflict,
+            `这些线路刚刚在别处修改：${stale.map((id) => lines.get(id)?.name ?? '（已删除）').join('、')}，请刷新后重试`,
+            { lines: stale },
+          )
+        const stale = ids.filter((id) => {
+          const d = lines.get(id)
+          return !d || items.some((i) => i.lineId === id && i.rev !== d.rev)
+        })
+        if (stale.length) throw conflict(stale)
+        const inputs = new Map<string, LineUpdateInput>()
+        for (const id of ids) {
+          const input = this.inputOf(lines.get(id)!)
+          if (edit(input, lines.get(id)!)) inputs.set(id, input)
+          else stale.push(id)
+        }
+        if (stale.length) throw conflict(stale)
+        const out: GroupLineResult['lines'] = []
+        for (const [id, input] of inputs) {
+          try {
+            await this.updateIn(tx, id, input, note)
+            out.push({ id, name: input.name, changed: true })
+          } catch (e) {
+            if (!(e instanceof NoChange)) throw e
+            throw invalid(`${input.name} 的站序没有变化`)
+          }
+        }
+        return { lines: out }
+      },
+      { timeout: 60_000, maxWait: 10_000 },
+    )
+  }
+
+  /** 站点加入线路（需求 5.3.4）：插入位置按每个走向给定；同一走向多处插入从后往前插，避免下标错位 */
+  async joinStop(stopId: string, input: StopJoinInput): Promise<GroupLineResult> {
+    const stopIds = [...new Set([stopId, ...input.items.flatMap((i) => i.inserts.map((x) => x.stopId))])]
+    const stops = await this.prisma.stop.findMany({ where: { id: { in: stopIds } }, select: STOP_SELECT })
+    if (stops.length !== stopIds.length) throw notFound('站点')
+    const labels = stopIds.map((id) => stopLabel(stops.find((s) => s.id === id)!))
+    return this.group(input.items, `站点 ${labels.join('、')} 加入站序`, (line, d) => {
+      const item = input.items.find((i) => i.lineId === d.id)!
+      for (const ins of [...item.inserts].sort((a, b) => b.at - a.at)) {
+        const route = line.routes.find((r) => r.kind === ins.kind)
+        if (!route) throw invalid(`${d.name}没有${ROUTE_KIND_LABEL[ins.kind]}`)
+        if (ins.at > route.stops.length) return false
+        route.stops.splice(ins.at, 0, { stopId: ins.stopId, times: [], ext: {} })
+      }
+      return true
+    })
+  }
+
+  /** 在线路中替换站点（需求 5.3.4）：到站时刻与路径站扩展字段保留；替换后与相邻站相同的拒绝 */
+  async replaceStop(stopId: string, input: StopReplaceInput): Promise<GroupLineResult> {
+    if (input.targetId === stopId) throw invalid('不能替换成同一个站点')
+    const [from, to] = await Promise.all(
+      [stopId, input.targetId].map((id) => this.prisma.stop.findUnique({ where: { id }, select: STOP_SELECT })),
+    )
+    if (!from || !to) throw notFound('站点')
+    return this.group(input.refs, `站点 ${stopLabel(from)} 替换为 ${stopLabel(to)}`, (line, d) => {
+      const refs = input.refs.filter((r) => r.lineId === d.id)
+      for (const ref of refs) {
+        const s = line.routes.find((r) => r.kind === ref.kind)?.stops[ref.index]
+        if (s?.stopId !== stopId) return false
+        s.stopId = input.targetId
+      }
+      for (const ref of refs) {
+        const stops = line.routes.find((r) => r.kind === ref.kind)!.stops
+        if (stops[ref.index - 1]?.stopId === input.targetId || stops[ref.index + 1]?.stopId === input.targetId)
+          throw invalid(`${d.name} ${ROUTE_KIND_LABEL[ref.kind]}第 ${ref.index + 1} 站：替换后会和相邻的站相同`)
+      }
+      return true
+    })
+  }
+
+  /* ---------------- 沿线编排进度（需求 5.4.6，M5 计划 3.4） ---------------- */
+
+  async arrangement(id: string): Promise<LineArrangement> {
+    const line = await this.prisma.line.findUnique({
+      where: { id },
+      select: { status: true, routes: { select: { id: true, kind: true } } },
+    })
+    if (!line) throw notFound('线路')
+    const routes = [...line.routes].sort((a, b) => kindOrder(a.kind) - kindOrder(b.kind))
+    const totals = { placed: 0, hidden: 0, waiting: 0, invalidStops: 0 }
+    if (line.status === 'suspended')
+      return {
+        suspended: true,
+        routes: routes.map((r) => ({ routeId: r.id, kind: r.kind, stops: [] })),
+        invalid: [],
+        totals,
+      }
+    // 本线路各走向的途经：（走向，站点）分区按站序编号
+    const passes = Prisma.sql`
+      SELECT rs."routeId", rs."stopId", rs.seq,
+             row_number() OVER (PARTITION BY rs."routeId", rs."stopId" ORDER BY rs.seq) AS pass
+      FROM "RouteStop" rs JOIN "Route" r ON r.id = rs."routeId"
+      WHERE r."lineId" = ${id}::uuid`
+    const [rows, invalidRows] = await Promise.all([
+      this.prisma.$queryRaw<{ routeId: string; stopId: string; pass: number; status: ArrangeStatus }[]>`
+        WITH p AS (${passes})
+        SELECT p."routeId"::text AS "routeId", p."stopId"::text AS "stopId", p.pass::int AS pass,
+               CASE WHEN bool_or(sc.placement IN ('board', 'slot')) THEN 'placed'
+                    WHEN bool_or(sc.placement = 'hidden') THEN 'hidden'
+                    ELSE 'waiting' END AS status
+        FROM p
+        LEFT JOIN "SignSet" ss ON ss."stopId" = p."stopId"
+        LEFT JOIN "Schedule" sc ON sc."signSetId" = ss.id AND sc."routeId" = p."routeId" AND sc.pass = p.pass
+        GROUP BY p."routeId", p."stopId", p.pass, p.seq
+        ORDER BY p."routeId", p.seq`,
+      this.prisma.$queryRaw<{ id: string; name: string; direction: string; count: number }[]>`
+        WITH p AS (${passes})
+        SELECT st.id::text AS id, st.name, st.direction, count(*)::int AS count
+        FROM "Schedule" sc
+        JOIN "Route" r ON r.id = sc."routeId" AND r."lineId" = ${id}::uuid
+        JOIN "SignSet" ss ON ss.id = sc."signSetId"
+        JOIN "Stop" st ON st.id = ss."stopId"
+        WHERE NOT EXISTS (
+          SELECT 1 FROM p WHERE p."routeId" = sc."routeId" AND p."stopId" = ss."stopId" AND p.pass = sc.pass)
+        GROUP BY st.id, st.name, st.direction
+        ORDER BY st.name, st.direction`,
+    ])
+    for (const r of rows) totals[r.status]++
+    totals.invalidStops = invalidRows.length
+    return {
+      suspended: false,
+      routes: routes.map((r) => ({
+        routeId: r.id,
+        kind: r.kind,
+        stops: rows.filter((x) => x.routeId === r.id).map(({ stopId, pass, status }) => ({ stopId, pass, status })),
+      })),
+      invalid: invalidRows,
+      totals,
+    }
   }
 
   private conflict(latest: LineDetail) {

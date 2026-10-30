@@ -117,6 +117,7 @@ const DEFAULT_COLUMNS = ['name', 'lines', 'region', 'shelves', 'boards', 'waitin
 
 export function SignSetListPage() {
   const { f, sort, set, clear, active } = useFilters()
+  const [sp] = useSearchParams()
   const { page, size, setPage, setSize } = usePageParams()
   const nav = useNavigate()
   const [q, setQ] = useState(f.q)
@@ -330,7 +331,7 @@ export function SignSetListPage() {
                 size="sm"
                 variant={s.waiting + s.invalid ? 'primary' : 'secondary'}
                 aria-label={`编排 ${stopLabel(s.stop)}`}
-                onClick={() => nav(`/sign-sets/${s.stop.id}`)}
+                onClick={() => nav(`/sign-sets/${s.stop.id}?${new URLSearchParams([['from', 'list'], ...sp])}`)}
               >
                 <Signpost size={13} /> 编排
               </Button>

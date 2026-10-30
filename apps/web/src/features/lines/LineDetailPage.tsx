@@ -6,13 +6,26 @@ import {
   SERVICE_TYPE_LABEL,
   TICKET_TYPE_LABEL,
   formatExtValue,
+  type ArrangeStatus,
+  type LineArrangement,
   type LineDeleteCheck,
   type LineImpact,
   type LineDetail,
   type SaveResult,
 } from '@gentransit/shared'
-import { useQueryClient } from '@tanstack/react-query'
-import { ArrowLeft, ArrowUpRight, MoreHorizontal, Pause, Pencil, Play, Trash2, X } from 'lucide-react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  CopyPlus,
+  MoreHorizontal,
+  Pause,
+  Pencil,
+  Play,
+  Signpost,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { HistoryButton } from '@/components/gt/history'
@@ -26,7 +39,9 @@ import { Button, IconButton } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/dropdown-menu'
 import { useExtFields } from '@/features/common/data'
+import { editorHref } from '@/features/sign-sets/queue'
 import { del, get, isApiError, post } from '@/lib/api'
+import { useNavStateOnce } from '@/lib/nav-state'
 import { cn } from '@/lib/utils'
 import { MapView } from '@/map/MapView'
 import { LineSample, RouteLegend } from '@/map/RouteLegend'
@@ -75,6 +90,25 @@ function Detail({ line }: { line: LineDetail }) {
   const suspended = line.status === 'suspended'
   const stopCount = new Set(line.routes.flatMap((r) => r.stops.map((s) => s.stop.id))).size
   const focusStop = focus !== null ? route?.stops[focus] : undefined
+  // 沿线编排进度（需求 5.4.6）；刚从线路表单保存回来时汇总行提示一次（F2）
+  const arr = useQuery({
+    queryKey: ['lines', 'arrangement', line.id, line.rev],
+    queryFn: () => get<LineArrangement>(`/api/lines/${line.id}/arrangement`),
+    // 站牌集在别处保存后回来要看到最新进度
+    staleTime: 0,
+  })
+  const justSaved = Boolean(useNavStateOnce<{ justSaved: boolean }>().justSaved)
+  const statusAt = new Map(
+    (arr.data?.routes.find((r) => r.routeId === route?.id)?.stops ?? []).map((s) => [
+      `${s.stopId}#${s.pass}`,
+      s.status,
+    ]),
+  )
+  const pendingStops = arr.data ? arr.data.totals.waiting + arr.data.totals.invalidStops : 0
+  /** 逐站编排的第一站：与服务端队列同序（各走向的待编排站，再是留有失效编排的站） */
+  const firstPending =
+    arr.data?.routes.flatMap((r) => r.stops.filter((s) => s.status === 'waiting').map((s) => s.stopId))[0] ??
+    arr.data?.invalid[0]?.id
   const flow = useSaveFlow<LineDetail>({
     okText: () => (suspended ? `${line.name} 已恢复运营` : `${line.name} 已停运，生成修改快照`),
   })
@@ -166,6 +200,9 @@ function Detail({ line }: { line: LineDetail }) {
               </IconButton>
             </MenuTrigger>
             <MenuContent>
+              <MenuItem onSelect={() => nav(`/lines/new?copyFrom=${line.id}`)}>
+                <CopyPlus size={14} /> 复制为新线路
+              </MenuItem>
               <MenuItem danger onSelect={() => void askDelete()}>
                 <Trash2 size={14} /> 删除线路
               </MenuItem>
@@ -261,6 +298,12 @@ function Detail({ line }: { line: LineDetail }) {
               />
               <span className="text-[12.5px] text-ink-3">{route.stops.length} 站</span>
             </div>
+            <ArrangeSummary
+              arr={arr.data}
+              justSaved={justSaved}
+              onStart={firstPending ? () => nav(editorHref(firstPending, 'line', { lineId: line.id })) : undefined}
+              pending={pendingStops}
+            />
             <div className="mb-4 grid grid-cols-3 gap-2">
               {[
                 { key: 'to', label: '开往', value: last ?? '—', display: true },
@@ -365,13 +408,14 @@ function Detail({ line }: { line: LineDetail }) {
                         ))}
                         {tr.length > 5 && <span className="text-[11.5px] text-ink-3">+{tr.length - 5}</span>}
                       </span>
+                      <ArrangeDot status={statusAt.get(`${s.stop.id}#${s.pass}`)} />
                     </div>
                   </li>
                 )
               })}
             </ol>
             <p className="mt-2 text-[12px] text-ink-3">
-              单击站点在地图上定位，双击进入站点详情。右侧线路牌是在该站可换乘的其他线路。
+              单击站点在地图上定位，双击进入站点详情。右侧线路牌是在该站可换乘的其他线路，最右的圆点是这条线路在该站的编排状态。
             </p>
           </section>
         )}
@@ -534,5 +578,78 @@ function ImpactNote({ impact, verb }: { impact: LineImpact | null; verb: string 
     >
       <b>{impact.signSets}</b> 个站牌集的 <b>{impact.schedules}</b> 条编排将{verb}。
     </p>
+  )
+}
+
+const ARRANGE_LABEL: Record<ArrangeStatus, string> = { placed: '已编排', hidden: '隐藏', waiting: '待编排' }
+
+/** 这条线路在该站的编排状态点：已编排鼠尾草、待编排赭石呼吸点、隐藏虚线圈（语义同需求 7.4） */
+function ArrangeDot({ status }: { status?: ArrangeStatus }) {
+  if (!status) return <span className="w-3 shrink-0" />
+  return (
+    <span
+      className="flex w-3 shrink-0 justify-center"
+      title={`本线路在该站：${ARRANGE_LABEL[status]}`}
+      data-testid={`arrange-${status}`}
+    >
+      {status === 'placed' ? (
+        <span className="size-2.5 rounded-full bg-sage" />
+      ) : status === 'waiting' ? (
+        <span className="gt-breathe size-2.5 rounded-full bg-signal" />
+      ) : (
+        <span className="size-2.5 rounded-full border border-dashed border-ink-3" />
+      )}
+      <span className="sr-only">{ARRANGE_LABEL[status]}</span>
+    </span>
+  )
+}
+
+/** 沿线编排汇总：已编排、待编排、隐藏，另有留有失效编排的站；有待处理时给出"逐站编排" */
+function ArrangeSummary({
+  arr,
+  pending,
+  justSaved,
+  onStart,
+}: {
+  arr?: LineArrangement
+  pending: number
+  justSaved: boolean
+  onStart?: () => void
+}) {
+  if (!arr) return <div className="mb-3 h-9" />
+  if (arr.suspended)
+    return (
+      <p className="mb-3 rounded-xl bg-surface-2 px-3 py-2 text-[12.5px] text-ink-3 ring-1 ring-hairline">
+        沿线各站的编排此时都显示为失效，恢复运营后自动回来。
+      </p>
+    )
+  const t = arr.totals
+  const n = t.placed + t.hidden + t.waiting
+  return (
+    <div
+      className={cn(
+        'mb-3 flex items-center gap-3 rounded-xl px-3 py-2 text-[12.5px] ring-1',
+        pending && justSaved ? 'bg-signal-soft/60 ring-signal/35' : 'bg-surface-2 ring-hairline',
+      )}
+      data-testid="arrange-summary"
+    >
+      {pending > 0 && justSaved && <span className="gt-breathe size-2 shrink-0 rounded-full bg-signal" />}
+      <span className="min-w-0 flex-1">
+        <span className="text-ink-2">沿线 {n} 处途经：</span>
+        <span className="text-sage">已编排 {t.placed}</span>
+        <span className="text-ink-4"> · </span>
+        <span className={t.waiting ? 'font-semibold text-signal-ink' : 'text-ink-3'}>待编排 {t.waiting}</span>
+        <span className="text-ink-4"> · </span>
+        <span className="text-ink-3">隐藏 {t.hidden}</span>
+        {t.invalidStops > 0 && (
+          <span className="block text-danger">另有 {t.invalidStops} 站不在站序上、但仍留有本线路的失效编排</span>
+        )}
+      </span>
+      {onStart && (
+        <Button size="sm" variant={justSaved ? 'primary' : 'secondary'} onClick={onStart}>
+          <Signpost size={13} /> 逐站编排
+        </Button>
+      )}
+    </div>
   )
 }

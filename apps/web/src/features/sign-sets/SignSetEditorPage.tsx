@@ -44,6 +44,8 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   ChevronDown,
   ChevronLeft,
+  ChevronsRight,
+  Copy,
   Layers,
   NotebookPen,
   Plus,
@@ -53,11 +55,11 @@ import {
   Trash2,
   Undo2,
 } from 'lucide-react'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Link, useBlocker, useParams } from 'react-router'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Elevation, PassageLabel, ZOOM_LABEL, useStoredZoom, type Sel, type Zoom } from '@/components/gt/elevation'
 import { HistoryButton, snapshotsKey } from '@/components/gt/history'
-import { EmptyShelfArt, OrbitLoader } from '@/components/gt/lively'
+import { EmptyShelfArt, OrbitLoader, SealCheck } from '@/components/gt/lively'
 import { ConflictDialog, useSaveFlow } from '@/components/gt/save'
 import { DirBadge, Segmented, StatusChip } from '@/components/gt/symbols'
 import { useToast } from '@/components/gt/toast'
@@ -67,10 +69,13 @@ import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/dropdo
 import { useDict } from '@/features/common/data'
 import { put } from '@/lib/api'
 import { cn, useStored } from '@/lib/utils'
+import { CopyFromDialog } from './CopyFromDialog'
 import { draftOf, toInput, useDraftHistory, useSignSet } from './data'
 import { EditorCtx, INVALID_MOVE, makeEditor, type EditorApi } from './editor-api'
 import { Inspector } from './Inspector'
 import { ScheduleMenu } from './PlaceMenu'
+import { useQueue } from './queue'
+import { QueueTrack } from './QueueTrack'
 import { TemplatePicker } from './TemplatePicker'
 import { Tray } from './Tray'
 
@@ -88,8 +93,11 @@ const same = (a: SignSetDraft, b: SignSetDraft) => JSON.stringify(toInput(a, 0))
 
 export function SignSetEditorPage() {
   const { stopId } = useParams()
-  const q = useSignSet(stopId)
-  if (q.isPending)
+  const q = useSignSet(stopId, { fresh: true })
+  // 缓存里的旧内容不用：等进入后这一次读取完成再开始编辑
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- 每换一个站点重新计时
+  const mountedAt = useMemo(() => Date.now(), [stopId])
+  if (q.isPending || (q.isFetching && q.dataUpdatedAt < mountedAt))
     return (
       <div className="flex h-full items-center justify-center gap-2 text-ink-3">
         <OrbitLoader size={22} /> 正在读取站牌集…
@@ -136,15 +144,38 @@ function Editor({ initial }: { initial: SignSetView }) {
   const [noteOpen, setNoteOpen] = useState(Boolean(initial.reminder))
   const shelfTypes = useDict('shelfType').data ?? []
   const stopName = stopLabel(view.stop)
+  const nav = useNavigate()
+  const [search, setSearch] = useSearchParams()
+  const queue = useQueue(view.stop.id, search)
+  /** 保存后主动离开（下一站、回到来源）时不再拦截 */
+  const leaving = useRef(false)
+  const copyFrom = search.get('copyFrom') ?? undefined
+  const [copyOpen, setCopyOpen] = useState(Boolean(copyFrom))
+  /** 有未保存修改时想去的队列站点 */
+  const [askGo, setAskGo] = useState<string | null>(null)
+  /** 保存成功后要去的站点（"保存并下一站"遇到保存前提示时先记下） */
+  const [pendingGo, setPendingGo] = useState<string | null>(null)
+  const [finished, setFinished] = useState(false)
 
   const ed: EditorApi = makeEditor({ view, draft, pool, set: hist.set, toast, confirm: setAsk, sel, setSel })
 
   /* ---------- 撤销、重做、快捷键 ---------- */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey
+      // Ctrl+S 保存、Ctrl+Enter 保存并进下一站：输入框里同样生效（F-COM-17）
+      if (mod && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        trySaveRef.current()
+        return
+      }
+      if (mod && e.key === 'Enter') {
+        e.preventDefault()
+        saveNextRef.current()
+        return
+      }
       const t = e.target as HTMLElement
       if (t.closest('input, textarea, select, [contenteditable="true"]')) return
-      const mod = e.ctrlKey || e.metaKey
       if (mod && e.key.toLowerCase() === 'z') {
         e.preventDefault()
         if (e.shiftKey) hist.redo()
@@ -160,7 +191,8 @@ function Editor({ initial }: { initial: SignSetView }) {
 
   /* ---------- 未保存离开前提示 ---------- */
   const blocker = useBlocker(
-    ({ currentLocation, nextLocation }) => dirty && currentLocation.pathname !== nextLocation.pathname,
+    ({ currentLocation, nextLocation }) =>
+      dirty && !leaving.current && currentLocation.pathname !== nextLocation.pathname,
   )
   useEffect(() => {
     if (!dirty) return
@@ -171,14 +203,14 @@ function Editor({ initial }: { initial: SignSetView }) {
 
   /* ---------- 保存 ---------- */
   const flow = useSaveFlow<SignSetView>({ okText: () => '已保存站牌集，生成一份修改快照' })
-  const save = async () => {
+  const save = async (): Promise<boolean> => {
     setWarn(null)
     setSaving(true)
     try {
       const r = await flow.save(() =>
         put<SaveResult<SignSetView>>(`/api/sign-sets/${view.id}`, toInput(draft, view.rev)),
       )
-      if (!r) return
+      if (!r) return false
       setView(r.item)
       setSavedDraft(draftOf(r.item))
       hist.reset(draftOf(r.item))
@@ -187,17 +219,39 @@ function Editor({ initial }: { initial: SignSetView }) {
         qc.invalidateQueries({ queryKey: ['stops', 'detail', view.stop.id] }),
         qc.invalidateQueries({ queryKey: snapshotsKey('signSet', view.id) }),
         qc.invalidateQueries({ queryKey: ['snapshots', 'recent'] }),
+        qc.invalidateQueries({ queryKey: ['lines', 'arrangement'] }),
+        qc.invalidateQueries({ queryKey: ['data-checks'] }),
       ])
+      queue?.markDone(view.stop.id)
+      return true
     } catch {
-      // 已提示
+      return false
     } finally {
       setSaving(false)
     }
   }
-  const trySave = () => {
+  /** 保存成功后：有要去的站就去，队列最后一站就提示这一轮处理完了 */
+  const afterSave = (go: string | null) => {
+    if (go) {
+      leaving.current = true
+      nav(queue!.hrefOf(go))
+    } else if (queue && !queue.next) setFinished(true)
+  }
+  const trySave = (go: string | null = null) => {
     const w = saveWarnings(draft)
+    setPendingGo(go)
     if (w.length) setWarn(w)
-    else void save()
+    else void save().then((ok) => ok && afterSave(go))
+  }
+  const saveNext = () => (queue?.next ? trySave(queue.next) : queue ? trySave() : undefined)
+  const trySaveRef = useRef(trySave)
+  const saveNextRef = useRef(saveNext)
+  trySaveRef.current = () => trySave()
+  saveNextRef.current = saveNext
+  /** 队列里前后移动：有未保存修改时先问 */
+  const go = (stopId: string) => {
+    if (dirty) setAskGo(stopId)
+    else nav(queue!.hrefOf(stopId))
   }
   const routeName = (rs: SignSetView['routes']) => (id: string) => {
     const r = rs.find((x) => x.id === id)
@@ -315,6 +369,9 @@ function Editor({ initial }: { initial: SignSetView }) {
         <Button onClick={addBlank}>
           <Plus size={14} /> 空白站架
         </Button>
+        <Button onClick={() => setCopyOpen(true)}>
+          <Copy size={14} /> 从其他站点复制
+        </Button>
       </div>
     </div>
   )
@@ -333,8 +390,8 @@ function Editor({ initial }: { initial: SignSetView }) {
           <header className="flex h-16 shrink-0 items-center gap-4 border-b border-hairline px-6">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-[12px] text-ink-3">
-                <Link to="/sign-sets" className="inline-flex items-center hover:text-ink">
-                  <ChevronLeft size={13} /> 站牌集
+                <Link to={queue?.source.to ?? '/sign-sets'} className="inline-flex items-center hover:text-ink">
+                  <ChevronLeft size={13} /> {queue?.source.label ?? '站牌集'}
                 </Link>
                 <span>·</span>
                 <Link to={`/stops/${view.stop.id}`} className="hover:text-ink">
@@ -354,6 +411,7 @@ function Editor({ initial }: { initial: SignSetView }) {
                 已编排 {counts.placed} · 隐藏 {counts.hidden}
               </span>
             </div>
+            {queue && <QueueTrack queue={queue} onGo={go} />}
             <div className="ml-auto flex items-center gap-1.5">
               {dirty && (
                 <span className="mr-1 inline-flex items-center gap-1.5 text-[12.5px] text-signal-ink">
@@ -392,9 +450,20 @@ function Editor({ initial }: { initial: SignSetView }) {
               >
                 <RotateCcw size={13} /> 撤销修改
               </Button>
-              <Button size="sm" variant="primary" disabled={saving} onClick={trySave}>
+              <Button
+                size="sm"
+                variant={queue?.next ? 'secondary' : 'primary'}
+                disabled={saving}
+                onClick={() => trySave()}
+                title="Ctrl+S"
+              >
                 <Save size={13} /> 保存
               </Button>
+              {queue?.next && (
+                <Button size="sm" variant="primary" disabled={saving} onClick={saveNext} title="Ctrl+Enter">
+                  保存并下一站 <ChevronsRight size={13} />
+                </Button>
+              )}
             </div>
           </header>
 
@@ -421,6 +490,9 @@ function Editor({ initial }: { initial: SignSetView }) {
                     </MenuItem>
                     <MenuItem onSelect={addBlank}>
                       <Plus size={14} /> 空白站架
+                    </MenuItem>
+                    <MenuItem onSelect={() => setCopyOpen(true)}>
+                      <Copy size={14} /> 从其他站点复制…
                     </MenuItem>
                   </MenuContent>
                 </Menu>
@@ -528,7 +600,7 @@ function Editor({ initial }: { initial: SignSetView }) {
         footer={
           <>
             <Button onClick={() => setWarn(null)}>回去补上</Button>
-            <Button variant="primary" onClick={() => void save()}>
+            <Button variant="primary" onClick={() => void save().then((ok) => ok && afterSave(pendingGo))}>
               仍然保存
             </Button>
           </>
@@ -555,6 +627,92 @@ function Editor({ initial }: { initial: SignSetView }) {
         }
       >
         <p>离开后这些修改不会保存。</p>
+      </Dialog>
+      <CopyFromDialog
+        open={copyOpen}
+        onOpenChange={(o) => {
+          setCopyOpen(o)
+          if (!o && copyFrom)
+            setSearch(
+              (p) => {
+                p.delete('copyFrom')
+                return p
+              },
+              { replace: true },
+            )
+        }}
+        stop={view.stop}
+        draft={draft}
+        pool={pool}
+        initialId={copyFrom}
+        onApply={(r, from) => {
+          if (ed.run(() => r.draft))
+            toast(
+              `已从「${from}」复制 ${r.shelves} 个站架、${r.boards} 块站牌${r.mapped ? `，带过 ${r.mapped} 条编排` : ''}`,
+              'info',
+            )
+          setCopyOpen(false)
+        }}
+      />
+      <Dialog
+        open={Boolean(askGo)}
+        onOpenChange={(o) => !o && setAskGo(null)}
+        title="本站有未保存的修改"
+        footer={
+          <>
+            <Button onClick={() => setAskGo(null)}>留在这里</Button>
+            <Button
+              variant="danger"
+              onClick={() => {
+                const to = askGo!
+                setAskGo(null)
+                leaving.current = true
+                nav(queue!.hrefOf(to))
+              }}
+            >
+              放弃修改
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => {
+                const to = askGo!
+                setAskGo(null)
+                trySave(to)
+              }}
+            >
+              保存并进入
+            </Button>
+          </>
+        }
+      >
+        <p>进入队列里的另一站之前，先保存还是放弃本站的修改？</p>
+      </Dialog>
+      <Dialog
+        open={finished}
+        onOpenChange={setFinished}
+        title={
+          <span className="inline-flex items-center gap-2">
+            <SealCheck size={26} /> 这一轮处理完了
+          </span>
+        }
+        footer={
+          <>
+            <Button onClick={() => setFinished(false)}>留在本站</Button>
+            {queue && (
+              <Button variant="primary" onClick={() => nav(queue.source.to)}>
+                回到{queue.source.label}
+              </Button>
+            )}
+          </>
+        }
+      >
+        <p data-testid="queue-finished">
+          队列里的 {queue?.stopIds.length ?? 0} 站都过了一遍
+          {queue && queue.total > queue.stopIds.length
+            ? `（来源共 ${queue.total} 站，队列取前 ${queue.stopIds.length} 站）`
+            : ''}
+          。
+        </p>
       </Dialog>
       {flow.conflict && (
         <ConflictDialog

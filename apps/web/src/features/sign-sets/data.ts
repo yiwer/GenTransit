@@ -15,11 +15,13 @@ import { get } from '@/lib/api'
 export const signSetKey = (stopId: string) => ['sign-sets', 'stop', stopId] as const
 export const templatesKey = ['shelf-templates'] as const
 
-export const useSignSet = (stopId: string | undefined) =>
+/** fresh：编辑器用，进入时总是重新读取（途经可能已被线路修改改变） */
+export const useSignSet = (stopId: string | undefined, opts: { fresh?: boolean } = {}) =>
   useQuery({
     queryKey: signSetKey(stopId ?? ''),
     queryFn: () => get<SignSetView>(`/api/stops/${stopId}/sign-set`),
     enabled: Boolean(stopId),
+    staleTime: opts.fresh ? 0 : undefined,
   })
 
 export const useSignSetList = (params: Record<string, string | number | undefined>) =>

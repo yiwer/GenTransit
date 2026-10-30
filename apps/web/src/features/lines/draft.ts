@@ -4,6 +4,7 @@ import {
   MODE_ROUTE_KINDS,
   changedLabels,
   lineInput,
+  passIndices,
   lineSnapshot,
   type BusCompany,
   type DictItem,
@@ -12,6 +13,7 @@ import {
   type LineInputRaw,
   type LineMode,
   type LineSnapshotV1,
+  type OppositeMap,
   type RouteKind,
   type ServiceType,
   type TicketType,
@@ -127,6 +129,51 @@ export function changeMode(d: LineDraft, mode: LineMode): LineDraft {
 /** 反向生成：用另一个走向的站序倒序生成本走向的初稿（只在双边、双环下使用） */
 export function reverseOf(source: RouteDraft): StopRow[] {
   return [...source.stops].reverse().map((s) => ({ key: rowKey(), stop: s.stop, times: [], ext: {} }))
+}
+
+/** 反向生成用对向站（需求 5.4.3，BR-19）：每站换成对向站点，没有的沿用原站并返回这些行的键 */
+export function reverseWithOpposites(
+  source: RouteDraft,
+  opposites: OppositeMap,
+): { rows: StopRow[]; missing: string[] } {
+  const missing: string[] = []
+  const rows = [...source.stops].reverse().map((s) => {
+    const o = opposites[s.stop.id]
+    const row = { key: rowKey(), stop: o ?? s.stop, times: [], ext: {} }
+    if (!o) missing.push(row.key)
+    return row
+  })
+  return { rows, missing }
+}
+
+/** 从已有线路复制新建（需求 5.4.3）：线路名、管理编号清空，到站时刻不带（需求第 11 节） */
+export const copyDraftOf = (l: LineDetail): LineDraft => {
+  const d = lineDraftOf(l)
+  return {
+    ...d,
+    name: '',
+    number: '',
+    status: 'running',
+    routes: d.routes.map((r) => ({ ...r, stops: r.stops.map((s) => ({ ...s, times: [] })) })),
+  }
+}
+
+/** 站序改动对比（需求 5.4.3）：按"站点 + 第几次途经"比较，新加的行键与被移除的站（带原来的前一站，用于放回） */
+export function routeChanges(base: RouteDraft | undefined, cur: RouteDraft) {
+  const keyed = (rows: StopRow[]) => {
+    const pass = passIndices(rows.map((r) => r.stop.id))
+    return rows.map((r, i) => ({ row: r, id: `${r.stop.id}#${pass[i]}`, index: i }))
+  }
+  const before = keyed(base?.stops ?? [])
+  const after = keyed(cur.stops)
+  const had = new Set(before.map((x) => x.id))
+  const has = new Set(after.map((x) => x.id))
+  return {
+    added: new Set(after.filter((x) => !had.has(x.id)).map((x) => x.row.key)),
+    removed: before
+      .filter((x) => !has.has(x.id))
+      .map((x) => ({ row: x.row, index: x.index, after: before[x.index - 1]?.row.stop.id ?? null })),
+  }
 }
 
 export const toLineInput = (d: LineDraft): LineInputRaw => ({

@@ -216,6 +216,8 @@ function labelLayout(p: OverlayProps, emph: Set<string>) {
     const sel = s.id === p.selectedId
     const hov = s.id === p.hoverId
     if (!p.showLabels && !sel && !hov) continue
+    // 候选站点、被移除的站点只在悬停时标名字
+    if ((s.tone === 'faint' || s.tone === 'removed') && !sel && !hov) continue
     const [x, y] = p.toPx(s.lng, s.lat)
     const size = sel ? 14 : 12.5
     const w =
@@ -321,9 +323,43 @@ export function MapOverlay(p: OverlayProps) {
               </>
             )}
             <circle cx={x} cy={y} r={12} fill="transparent" />
-            {s.badge ? (
-              // 带序号的站点（线路表单、线路详情）
+            {s.tone === 'faint' ? (
+              // 候选站点（线路表单的地图点选加站）：淡显的空心小点，悬停时加粗
+              <circle
+                cx={x}
+                cy={y}
+                r={hov ? 6 : 4.5}
+                fill="var(--surface)"
+                fillOpacity={0.9}
+                stroke="var(--plate)"
+                strokeOpacity={hov ? 1 : 0.55}
+                strokeWidth={hov ? 2 : 1.5}
+              />
+            ) : s.tone === 'removed' ? (
+              // 本次从站序移除的站点：陶土色虚线空心点
+              <circle
+                cx={x}
+                cy={y}
+                r={7}
+                fill="var(--surface)"
+                fillOpacity={0.7}
+                stroke="var(--danger)"
+                strokeWidth={1.8}
+                strokeDasharray="2.5 2.5"
+              />
+            ) : s.badge ? (
+              // 带序号的站点（线路表单、线路详情）；本次新加的外面一圈墨绿环
               <>
+                {s.tone === 'added' && (
+                  <circle
+                    cx={x}
+                    cy={y}
+                    r={dotRadius(s, sel, false) + 4}
+                    fill="none"
+                    stroke="var(--accent)"
+                    strokeWidth={1.6}
+                  />
+                )}
                 <circle
                   cx={x}
                   cy={y}

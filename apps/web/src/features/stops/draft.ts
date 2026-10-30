@@ -1,5 +1,6 @@
 // 站点表单的草稿：与接口的 StopInput 互转；构造快照内容用于"改了哪些字段"与冲突差异
 import {
+  OPPOSITE_DIR,
   STOP_DIFF_SPEC,
   changedLabels,
   roundCoord,
@@ -7,6 +8,7 @@ import {
   stopSnapshot,
   type DictItem,
   type ExtFieldDef,
+  type OrientationMode,
   type Ref,
   type Region,
   type StopDetail,
@@ -182,3 +184,18 @@ export function snapshotOf(d: Draft, lk: Lookups): StopSnapshotV1 {
 
 export const changedFields = (orig: Draft, d: Draft, lk: Lookups) =>
   changedLabels(snapshotOf(orig, lk), snapshotOf(d, lk), STOP_DIFF_SPEC)
+
+/**
+ * 新建对向站点的初稿（需求 5.3.3）：带入站名、英文名、市区街道、路段、维护公司、站台设施、扩展字段；
+ * 方位取相对方位（其他方位与编码模式留空）；坐标、地标、照片、二维码 URL、备注不带
+ */
+export const oppositeDraftOf = (s: StopDetail, mode: OrientationMode): Draft => ({
+  ...draftOf(s),
+  direction: (mode === 'orientation' ? OPPOSITE_DIR[s.direction] : undefined) ?? '',
+  lng: null,
+  lat: null,
+  qrUrl: '',
+  remark: '',
+  landmarks: [],
+  photos: [],
+})

@@ -11,6 +11,8 @@ export interface MapPoint {
   sub?: string
   /** 圆点里的序号（站序） */
   badge?: string
+  /** M5：faint 候选站点（淡显空心）、added 本次新加（外加一圈环）、removed 本次移除（陶土色虚线） */
+  tone?: 'faint' | 'added' | 'removed'
 }
 
 /** 线路走向折线：按站序连线；强调、普通、淡显三档；flow 表示行驶方向的流动短划 */
@@ -57,6 +59,8 @@ export interface MapProps {
   fit?: { key: string; points: LngLat[] } | null
   className?: string
   overlay?: ReactNode
+  /** 平移、缩放结束后的视野（西、南、东、北）与每像素米数（M5 地图点选加站、F-COM-18） */
+  onViewport?: (bbox: [number, number, number, number], mpp: number) => void
 }
 
 /** 默认视野中心（示例市，杭州附近） */

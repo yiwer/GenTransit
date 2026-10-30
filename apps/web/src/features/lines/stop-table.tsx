@@ -1,4 +1,5 @@
-// 站序表：拖拽把手排序（dnd-kit），键盘 Alt+↑/↓ 移动；行内删除；第 2 次起标出第几次途经；路径站扩展字段行内编辑
+// 站序表：拖拽把手排序（dnd-kit），键盘 Alt+↑/↓ 移动；行内删除；第 2 次起标出第几次途经；路径站扩展字段行内编辑；
+// M5：本次新加的行标"新"，行尾提醒（站间距离过远、方位疑似反了、没有对向站），可带一键修正
 import {
   DndContext,
   KeyboardSensor,
@@ -17,7 +18,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { passIndices, type ExtFieldDef } from '@gentransit/shared'
-import { GripVertical, X } from 'lucide-react'
+import { AlertTriangle, GripVertical, X } from 'lucide-react'
 import type { KeyboardEvent } from 'react'
 import { DirBadge, Tag } from '@/components/gt/symbols'
 import { IconButton } from '@/components/ui/button'
@@ -66,10 +67,17 @@ function ExtCell({ def, value, onChange }: { def: ExtFieldDef; value: unknown; o
   )
 }
 
+/** 行的标记（M5）：新加的行、提醒及一键修正 */
+export interface RowMark {
+  added?: boolean
+  notes?: { text: string; fix?: { label: string; run: () => void } }[]
+}
+
 function Row({
   row,
   index,
   pass,
+  mark,
   selected,
   onSelect,
   onRemove,
@@ -81,6 +89,7 @@ function Row({
   row: StopRow
   index: number
   pass: number
+  mark?: RowMark
   selected: boolean
   onSelect: () => void
   onRemove: () => void
@@ -129,6 +138,37 @@ function Row({
         <span className="truncate font-display text-[14px] font-semibold">{row.stop.name}</span>
         <DirBadge dir={row.stop.direction} size="sm" />
         {pass > 1 && <Tag className="h-4 shrink-0 px-1.5 text-[10.5px]">第 {pass} 次</Tag>}
+        {mark?.added && (
+          <span
+            className="shrink-0 rounded bg-accent-soft px-1 text-[10.5px] font-semibold text-accent"
+            data-testid="row-added"
+          >
+            新
+          </span>
+        )}
+        {mark?.notes?.length ? (
+          <span className="flex shrink-0 items-center gap-1" data-testid="row-note">
+            <span title={mark.notes.map((n) => n.text).join('\n')} className="text-signal-ink">
+              <AlertTriangle size={13} aria-label={mark.notes.map((n) => n.text).join('；')} />
+            </span>
+            {mark.notes
+              .filter((n) => n.fix)
+              .map((n) => (
+                <button
+                  key={n.text}
+                  type="button"
+                  title={n.text}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    n.fix!.run()
+                  }}
+                  className="rounded px-1 text-[11px] text-signal-ink underline-offset-2 hover:underline"
+                >
+                  {n.fix!.label}
+                </button>
+              ))}
+          </span>
+        ) : null}
       </span>
       <span className="truncate text-[12px] tabular-nums text-ink-3" title={row.times.join('、')}>
         {row.times.length
@@ -158,12 +198,14 @@ export function StopTable({
   selected,
   onSelect,
   extDefs = [],
+  marks = {},
 }: {
   rows: StopRow[]
   onChange: (rows: StopRow[]) => void
   selected: string | null
   onSelect: (key: string | null) => void
   extDefs?: ExtFieldDef[]
+  marks?: Record<string, RowMark>
 }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -210,6 +252,7 @@ export function StopTable({
                 row={r}
                 index={i}
                 pass={pass[i]}
+                mark={marks[r.key]}
                 grid={grid}
                 extDefs={extDefs}
                 selected={selected === r.key}

@@ -1,12 +1,22 @@
 // 删除前二次确认并写明连带影响（F-COM-05）；被引用时列出引用方（BR-12）
 import { ERROR_CODES, type Referrer } from '@gentransit/shared'
 import { useState, type ReactNode } from 'react'
+import { Link } from 'react-router'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { isApiError } from '@/lib/api'
 import { useToast } from './toast'
 
-export function ReferrerList({ referrers, total }: { referrers: Referrer[]; total?: number }) {
+export function ReferrerList({
+  referrers,
+  total,
+  hrefOf,
+}: {
+  referrers: Referrer[]
+  total?: number
+  /** 给了就把名称做成链接（M5：删除站点被拒时可点开线路） */
+  hrefOf?: (r: Referrer) => string | undefined
+}) {
   return (
     <>
       <ul className="mt-3 max-h-[240px] overflow-auto rounded-xl ring-1 ring-hairline">
@@ -16,7 +26,13 @@ export function ReferrerList({ referrers, total }: { referrers: Referrer[]; tota
             className="flex items-center gap-3 border-b border-hairline px-3 py-2 text-[13px] last:border-0"
           >
             <span className="w-16 shrink-0 text-[12px] text-ink-3">{r.type}</span>
-            <span className="text-ink">{r.name}</span>
+            {hrefOf?.(r) ? (
+              <Link to={hrefOf(r)!} className="text-accent hover:underline">
+                {r.name}
+              </Link>
+            ) : (
+              <span className="text-ink">{r.name}</span>
+            )}
           </li>
         ))}
       </ul>

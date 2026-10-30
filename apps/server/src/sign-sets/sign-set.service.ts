@@ -142,11 +142,12 @@ export class SignSetService {
       ...draft.schedules.map((s) => s.routeId),
     ])
     const snapshotCount = await db.snapshot.count({ where: { objectType: 'signSet', objectId: row.id } })
+    const at = await db.stop.findUnique({ where: { id: stopId }, select: { lng: true, lat: true } })
     return {
       ...draft,
       id: row.id,
       rev: row.rev,
-      stop: row.stop,
+      stop: { ...row.stop, lng: at?.lng, lat: at?.lat },
       routes,
       passages,
       counts: countsOf(poolOf(draft, passages, routes)),

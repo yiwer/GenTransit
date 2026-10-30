@@ -1,5 +1,7 @@
 // 线路新建与编辑（M2 计划 4.1）：左侧线路属性 + 走向页签（站序表、添加站点、粘贴、反向生成、到站时刻），右侧地图。
-// 改模式时页签按位置改名，将删除的走向标成删除样式，保存前确认；未保存拦截与冲突弹窗沿用站点表单
+// 改模式时页签按位置改名，将删除的走向标成删除样式，保存前确认；未保存拦截与冲突弹窗沿用站点表单。
+// M5：从已有线路复制新建；反向生成用对向站；加站按距离排序；行提醒（站间距离、方位疑似反了）；
+// 站序改动对比；地图上点选附近站点加入站序；Ctrl+S 保存
 import {
   LINE_DIFF_SPEC,
   LINE_MODE_LABEL,
@@ -9,16 +11,23 @@ import {
   SERVICE_TYPES,
   TICKET_TYPE_LABEL,
   TICKET_TYPES,
+  distanceM,
+  fmtDistance,
+  gapWarnings,
   lineSnapshot,
+  stopLabel,
+  wrongSide,
+  type OppositeMap,
   type LineDetail,
   type LineImpact,
   type LineNameCheck,
   type SaveResult,
+  type StopRef as SharedStopRef,
 } from '@gentransit/shared'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, ClipboardPaste, Clock, Eraser, Repeat } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useBlocker, useNavigate, useParams } from 'react-router'
+import { useBlocker, useNavigate, useParams, useSearchParams } from 'react-router'
 import { HistoryButton } from '@/components/gt/history'
 import { OrbitLoader } from '@/components/gt/lively'
 import { DictPicker } from '@/components/gt/pickers'
@@ -33,13 +42,16 @@ import { useCompanies, useDicts, useExtFields } from '@/features/common/data'
 import { get, post, put } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { MapView } from '@/map/MapView'
+import { LABEL_MAX_MPP } from '@/map/types'
 import {
   blankLineDraft,
   changeMode,
+  copyDraftOf,
   lineChanges,
   lineDraftOf,
   lineSnapshotOf,
-  reverseOf,
+  reverseWithOpposites,
+  routeChanges,
   rowKey,
   toLineInput,
   validateLine,
@@ -50,20 +62,30 @@ import {
 } from './draft'
 import { PasteDialog, StopSearch } from './route-tools'
 import { kindText, lineKey, useLine } from './shared'
-import { StopTable } from './stop-table'
+import { StopTable, type RowMark } from './stop-table'
 import { TimesEditor } from './times-editor'
 
 export function LineFormPage() {
   const { id } = useParams()
+  const [sp] = useSearchParams()
+  // 从已有线路复制新建（需求 5.4.3）：/lines/new?copyFrom=<线路 id>
+  const copyFrom = id ? undefined : (sp.get('copyFrom') ?? undefined)
   const line = useLine(id)
-  if (id && line.isPending)
+  const source = useLine(copyFrom)
+  if ((id && line.isPending) || (copyFrom && source.isPending))
     return (
       <div className="flex h-full items-center justify-center gap-2 text-ink-3">
         <OrbitLoader size={22} /> 正在读取…
       </div>
     )
   if (id && !line.data) return <div className="p-10 text-center text-ink-3">线路不存在</div>
-  return <LineForm key={id ?? 'new'} original={line.data ?? null} />
+  return (
+    <LineForm
+      key={id ?? `new:${copyFrom ?? ''}`}
+      original={line.data ?? null}
+      copyOf={copyFrom ? (source.data ?? null) : null}
+    />
+  )
 }
 
 function useDebounced<T>(value: T, ms: number) {
@@ -86,7 +108,7 @@ function useDupCheck(kind: 'name' | 'number', value: string, excludeId?: string)
   return kind === 'name' ? `线路名「${v}」已存在` : `管理编号「${v}」已被「${q.data.line.name}」使用`
 }
 
-function LineForm({ original: initial }: { original: LineDetail | null }) {
+function LineForm({ original: initial, copyOf }: { original: LineDetail | null; copyOf: LineDetail | null }) {
   const nav = useNavigate()
   const qc = useQueryClient()
   const toast = useToast()
@@ -97,7 +119,7 @@ function LineForm({ original: initial }: { original: LineDetail | null }) {
 
   const [original, setOriginal] = useState<LineDetail | null>(initial)
   const base = useMemo(() => (original ? lineDraftOf(original) : blankLineDraft()), [original])
-  const [d, setD] = useState<LineDraft>(base)
+  const [d, setD] = useState<LineDraft>(() => (copyOf ? copyDraftOf(copyOf) : base))
   const set = <K extends keyof LineDraft>(k: K, v: LineDraft[K]) => setD((x) => ({ ...x, [k]: v }))
   const [active, setActive] = useState(0)
   const [selected, setSelected] = useState<string | null>(null)
@@ -154,7 +176,7 @@ function LineForm({ original: initial }: { original: LineDetail | null }) {
       await qc.invalidateQueries({ queryKey: ['stops'] })
       await qc.invalidateQueries({ queryKey: ['snapshots', 'line', r.item.id] })
       leaving.current = true
-      nav(`/lines/${r.item.id}`)
+      nav(`/lines/${r.item.id}`, { state: { justSaved: true } })
     } catch {
       // 已提示
     } finally {
@@ -193,6 +215,112 @@ function LineForm({ original: initial }: { original: LineDetail | null }) {
     errors[`routes.${i}.stops`] ?? Object.entries(errors).find(([k]) => k.startsWith(`routes.${i}.`))?.[1]
   const selectedRow = route?.stops.find((r) => r.key === selected)
 
+  // Ctrl+S 保存（F-COM-17）
+  const trySaveRef = useRef(trySave)
+  trySaveRef.current = trySave
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+        e.preventDefault()
+        trySaveRef.current()
+      }
+    }
+    window.addEventListener('keydown', k)
+    return () => window.removeEventListener('keydown', k)
+  }, [])
+
+  /* ---------- M5 加站辅助 ---------- */
+
+  /** 反向生成时没有对向站、沿用原站的行：行键 → 站点 ID（这一行换了站点后标记消失） */
+  const [hints, setHints] = useState<Record<string, string>>({})
+  const reverse = async () => {
+    if (!other) return
+    try {
+      const ids = [...new Set(other.stops.map((x) => x.stop.id))]
+      const opp = ids.length ? await post<OppositeMap>('/api/stops/opposites', { ids }) : {}
+      const { rows, missing } = reverseWithOpposites(other, opp)
+      setRoute({ stops: rows })
+      setSelected(null)
+      setHints((h) => ({
+        ...h,
+        ...Object.fromEntries(missing.map((k) => [k, rows.find((r) => r.key === k)!.stop.id])),
+      }))
+      toast(
+        missing.length
+          ? `已倒序生成，${missing.length} 站没有对向站、沿用原站，请核对标出的行`
+          : '已倒序生成，各站都换成了对向站',
+        missing.length ? 'warn' : 'ok',
+      )
+    } catch {
+      toast('反向生成失败', 'error')
+    }
+  }
+  // 当前走向各站的对向站：判断方位疑似反了（BR-20）
+  const routeStopIds = [...new Set((route?.stops ?? []).map((x) => x.stop.id))].sort()
+  const opps = useQuery({
+    queryKey: ['stops', 'opposites', routeStopIds.join(',')],
+    queryFn: () => post<OppositeMap>('/api/stops/opposites', { ids: routeStopIds }),
+    enabled: routeStopIds.length > 0 && routeStopIds.length <= 500,
+    staleTime: 60_000,
+  })
+  const diff =
+    !isNew && route
+      ? routeChanges(
+          base.routes.find((r) => r.kind === route.kind),
+          route,
+        )
+      : null
+  const marks: Record<string, RowMark> = {}
+  if (route) {
+    const pts = route.stops.map((x) => x.stop)
+    const gaps = new Set(gapWarnings(pts))
+    route.stops.forEach((row, i) => {
+      const notes: NonNullable<RowMark['notes']> = []
+      if (gaps.has(i)) notes.push({ text: `距上一站 ${fmtDistance(distanceM(pts[i - 1], pts[i]))}，确认没有选错站？` })
+      const o = opps.data?.[row.stop.id]
+      if (o && wrongSide(pts[i - 1] ?? null, pts[i], pts[i + 1] ?? null, o))
+        notes.push({
+          text: `方位疑似反了：对向站「${stopLabel(o)}」在行驶方向右侧`,
+          fix: {
+            label: '换成对向站',
+            run: () => setRoute({ stops: route.stops.map((x) => (x.key === row.key ? { ...x, stop: o } : x)) }),
+          },
+        })
+      if (hints[row.key] === row.stop.id) notes.push({ text: '没有对向站，沿用原站' })
+      const added = diff?.added.has(row.key)
+      if (notes.length || added) marks[row.key] = { added, notes }
+    })
+  }
+  /** 把移除的站放回：原来的前一站还在就放在它后面，否则放回原位置 */
+  const putBack = (r: NonNullable<typeof diff>['removed'][number]) => {
+    const stops = route.stops
+    let at = 0
+    if (r.after !== null) {
+      const i = stops.findIndex((x) => x.stop.id === r.after)
+      at = i >= 0 ? i + 1 : Math.min(r.index, stops.length)
+    }
+    setRoute({ stops: [...stops.slice(0, at), { ...r.row, key: rowKey() }, ...stops.slice(at)] })
+  }
+  // 地图点选加站（需求 5.4.3）：比例尺在 1 公里档以内时淡显视野里不在当前走向上的站点
+  const [viewport, setViewport] = useState<{ bbox: [number, number, number, number]; mpp: number } | null>(null)
+  const vp = useDebounced(viewport, 300)
+  const near = Boolean(vp && vp.mpp <= LABEL_MAX_MPP)
+  const inView = useQuery({
+    queryKey: ['stops', 'in-view', vp?.bbox.map((x) => x.toFixed(4)).join(',')],
+    queryFn: () => get<SharedStopRef[]>('/api/stops/in-view', { bbox: vp!.bbox.join(',') }),
+    enabled: near,
+    staleTime: 30_000,
+  })
+  const onRoute = new Set(route?.stops.map((x) => x.stop.id))
+  const candidates = near ? (inView.data ?? []).filter((x) => !onRoute.has(x.id)) : []
+  const pickCandidate = (id: string) => {
+    const c = candidates.find((x) => x.id === id)
+    if (!c) return
+    const at = selected ? route.stops.findIndex((r) => r.key === selected) + 1 : route.stops.length
+    addStops([c])
+    toast(`已加入「${stopLabel(c)}」· 第 ${at + 1} 站`, 'info')
+  }
+
   const left = (
     <div className="flex h-full flex-col">
       <div className="flex h-14 shrink-0 items-center gap-2 px-6">
@@ -213,7 +341,9 @@ function LineForm({ original: initial }: { original: LineDetail | null }) {
         <div className="flex items-center gap-4 pb-5 pt-2">
           <RoutePlate name={d.name || '新线路'} size="lg" state={d.name ? 'normal' : 'ghost'} />
           <div>
-            <div className="eyebrow">{isNew ? '新建线路' : '编辑线路'}</div>
+            <div className="eyebrow">
+              {isNew ? (copyOf ? `新建线路 · 复制自 ${copyOf.name}` : '新建线路') : '编辑线路'}
+            </div>
             <div className="mt-0.5 text-[13px] text-ink-3">{LINE_MODE_LABEL[d.mode]}</div>
           </div>
         </div>
@@ -226,7 +356,7 @@ function LineForm({ original: initial }: { original: LineDetail | null }) {
                 <GhostInput
                   value={d.name}
                   onChange={(e) => set('name', e.target.value)}
-                  placeholder="如：K1路"
+                  placeholder={copyOf ? `复制自 ${copyOf.name}` : '如：K1路'}
                   autoFocus={isNew}
                   className="font-plate text-[16px] font-semibold"
                 />
@@ -436,6 +566,7 @@ function LineForm({ original: initial }: { original: LineDetail | null }) {
               <div className="mt-4 flex flex-wrap items-center gap-1.5">
                 <StopSearch
                   onAdd={(s) => addStops([s])}
+                  near={(selectedRow ?? route.stops.at(-1))?.stop}
                   placeholder={selectedRow ? `插到「${selectedRow.stop.name}」之后` : '按站名搜索，回车加到末尾'}
                 />
                 <Button size="sm" variant="ghost" onClick={() => setPasteOpen(true)}>
@@ -446,8 +577,8 @@ function LineForm({ original: initial }: { original: LineDetail | null }) {
                     size="sm"
                     variant="ghost"
                     disabled={!other.stops.length}
-                    title={`用${ROUTE_KIND_LABEL[other.kind]}的站序倒序生成本走向初稿`}
-                    onClick={() => setRoute({ stops: reverseOf(other) })}
+                    title={`用${ROUTE_KIND_LABEL[other.kind]}的站序倒序生成本走向初稿，各站换成对向站`}
+                    onClick={() => void reverse()}
                   >
                     <Repeat size={14} /> 反向生成
                   </Button>
@@ -466,8 +597,25 @@ function LineForm({ original: initial }: { original: LineDetail | null }) {
                   selected={selected}
                   onSelect={setSelected}
                   extDefs={(rsExt.data ?? []).filter((f) => f.enabled)}
+                  marks={marks}
                 />
               </div>
+              {diff && diff.removed.length > 0 && (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[12px]" data-testid="removed-stops">
+                  <span className="text-ink-3">本次移除：</span>
+                  {diff.removed.map((r) => (
+                    <span
+                      key={r.row.key}
+                      className="inline-flex items-center gap-1 rounded-lg bg-danger-soft/50 px-2 py-0.5"
+                    >
+                      <span className="text-danger line-through decoration-1">{stopLabel(r.row.stop)}</span>
+                      <button type="button" onClick={() => putBack(r)} className="text-accent hover:underline">
+                        放回
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
               <FieldError>{routeError(Math.min(active, d.routes.length - 1))}</FieldError>
               <p className="mt-2 text-[12px] text-ink-3">拖动左侧把手排序，或选中一行后按 Alt + ↑ / ↓ 移动。</p>
             </div>
@@ -488,7 +636,7 @@ function LineForm({ original: initial }: { original: LineDetail | null }) {
         <Button variant="ghost" onClick={() => nav(isNew ? '/lines' : `/lines/${original!.id}`)}>
           取消
         </Button>
-        <Button variant="primary" onClick={trySave} disabled={saving || !valid}>
+        <Button variant="primary" onClick={trySave} disabled={saving || !valid} title="Ctrl+S">
           保存
         </Button>
       </footer>
@@ -501,14 +649,33 @@ function LineForm({ original: initial }: { original: LineDetail | null }) {
     tone: (i === Math.min(active, d.routes.length - 1) ? 'strong' : 'faint') as 'strong' | 'faint',
     flow: i === Math.min(active, d.routes.length - 1),
   }))
-  const routePoints = (route?.stops ?? []).map((s, i) => ({
-    id: s.key,
-    lng: s.stop.lng,
-    lat: s.stop.lat,
-    label: s.stop.name,
-    sub: s.stop.direction,
-    badge: String(i + 1),
-  }))
+  const routePoints = [
+    ...candidates.map((c) => ({
+      id: `cand:${c.id}`,
+      lng: c.lng,
+      lat: c.lat,
+      label: c.name,
+      sub: c.direction,
+      tone: 'faint' as const,
+    })),
+    ...(diff?.removed ?? []).map((r) => ({
+      id: `rm:${r.row.key}`,
+      lng: r.row.stop.lng,
+      lat: r.row.stop.lat,
+      label: r.row.stop.name,
+      sub: `${r.row.stop.direction} · 已移除`,
+      tone: 'removed' as const,
+    })),
+    ...(route?.stops ?? []).map((s, i) => ({
+      id: s.key,
+      lng: s.stop.lng,
+      lat: s.stop.lat,
+      label: s.stop.name,
+      sub: s.stop.direction,
+      badge: String(i + 1),
+      tone: diff?.added.has(s.key) ? ('added' as const) : undefined,
+    })),
+  ]
   const allPts = d.routes.flatMap((r) => r.stops.map((s) => [s.stop.lng, s.stop.lat] as [number, number]))
 
   return (
@@ -523,7 +690,20 @@ function LineForm({ original: initial }: { original: LineDetail | null }) {
             points={routePoints}
             routes={allRoutes}
             selectedId={selected}
-            onSelect={(k) => setSelected(selected === k ? null : k)}
+            onSelect={(k) => {
+              if (k.startsWith('cand:')) pickCandidate(k.slice(5))
+              else if (!k.startsWith('rm:')) setSelected(selected === k ? null : k)
+            }}
+            onViewport={(bbox, mpp) => setViewport({ bbox, mpp })}
+            overlay={
+              route && (
+                <div className="pointer-events-none absolute bottom-10 left-1/2 -translate-x-1/2 rounded-full bg-ink/80 px-3.5 py-1.5 text-[12px] text-paper shadow-float">
+                  {near
+                    ? `点淡色的站点${selectedRow ? `插到「${selectedRow.stop.name}」之后` : '加到末尾'}`
+                    : '放大到 1 公里比例尺，可在地图上点站点加入站序'}
+                </div>
+              )
+            }
             fit={
               selectedRow
                 ? { key: `row:${selected}`, points: [[selectedRow.stop.lng, selectedRow.stop.lat]] }

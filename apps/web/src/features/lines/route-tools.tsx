@@ -1,5 +1,5 @@
 // 站序编辑的工具：按站名联想添加站点；粘贴"站名 + 方位"两列文本批量匹配
-import type { Page, StopListItem, StopMatchResult } from '@gentransit/shared'
+import { STOP_GAP_WARN_M, fmtDistance, type Page, type StopListItem, type StopMatchResult } from '@gentransit/shared'
 import { useQuery } from '@tanstack/react-query'
 import { Check, Search, X } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -12,8 +12,16 @@ import { get, isApiError, post } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import type { StopRef } from './draft'
 
-/** 搜索站点并添加：回车加入高亮项 */
-export function StopSearch({ onAdd, placeholder }: { onAdd: (s: StopRef) => void; placeholder: string }) {
+/** 搜索站点并添加：回车加入高亮项；给了 near（插入位置的前一站）时按离它的距离排序并显示距离（M5 加站辅助） */
+export function StopSearch({
+  onAdd,
+  placeholder,
+  near,
+}: {
+  onAdd: (s: StopRef) => void
+  placeholder: string
+  near?: { lng: number; lat: number }
+}) {
   const [q, setQ] = useState('')
   const [term, setTerm] = useState('')
   const [idx, setIdx] = useState(0)
@@ -21,9 +29,10 @@ export function StopSearch({ onAdd, placeholder }: { onAdd: (s: StopRef) => void
     const t = setTimeout(() => setTerm(q.trim()), 200)
     return () => clearTimeout(t)
   }, [q])
+  const nearParam = near ? `${near.lng},${near.lat}` : undefined
   const res = useQuery({
-    queryKey: ['stops', 'search', term],
-    queryFn: () => get<Page<StopListItem>>('/api/stops', { q: term, size: 8 }),
+    queryKey: ['stops', 'search', term, nearParam],
+    queryFn: () => get<Page<StopListItem>>('/api/stops', { q: term, size: 8, near: nearParam }),
     enabled: term.length > 0,
   })
   const items = term ? (res.data?.items ?? []) : []
@@ -76,6 +85,16 @@ export function StopSearch({ onAdd, placeholder }: { onAdd: (s: StopRef) => void
                 <span className="ml-auto truncate text-[12px] text-ink-3">
                   {[s.road?.name, s.street?.name].filter(Boolean).join(' · ')}
                 </span>
+                {s.distance !== undefined && (
+                  <span
+                    className={cn(
+                      'shrink-0 text-[12px] tabular-nums',
+                      s.distance > STOP_GAP_WARN_M ? 'font-semibold text-signal-ink' : 'text-ink-3',
+                    )}
+                  >
+                    距上一站 {fmtDistance(s.distance)}
+                  </span>
+                )}
               </button>
             </li>
           ))}

@@ -1,11 +1,20 @@
 // 线路托盘（需求 5.5.3）：只有两个区——待编排（往上拖到站牌；站牌上的线路拖回来即移除）和隐藏（拖进去即隐藏）。
 // 已编排看站牌本身，托盘不重复列出
 import { useDraggable, useDroppable } from '@dnd-kit/core'
-import { passageLabel, type PoolItem } from '@gentransit/shared'
-import { ChevronDown, ChevronUp, EyeOff, Undo2 } from 'lucide-react'
+import {
+  allBoards,
+  boardLabel,
+  firstEmptySlot,
+  passageLabel,
+  placeAll,
+  shelfLabel,
+  type PoolItem,
+} from '@gentransit/shared'
+import { ChevronDown, ChevronUp, CornerDownRight, EyeOff, Undo2 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { PassageLabel } from '@/components/gt/elevation'
 import { Button } from '@/components/ui/button'
+import { Menu, MenuContent, MenuItem, MenuLabel, MenuTrigger } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { useEditor } from './editor-api'
 import { PoolMenu } from './PlaceMenu'
@@ -51,6 +60,47 @@ function TrayChip({ item, hidden }: { item: PoolItem; hidden?: boolean }) {
   )
 }
 
+/** 待编排全部放到一块站牌（M5 A7）：整版站牌放上全部并自动排序；分片站牌依次放进空的线路插片 */
+function PlaceAllMenu({ count }: { count: number }) {
+  const ed = useEditor()
+  const boards = allBoards(ed.draft).filter(({ board }) => board.kind === 'whole' || firstEmptySlot(ed.draft, board.id))
+  const run = (boardId: string) => {
+    let r = { placed: 0, left: 0 }
+    if (
+      ed.run((d) => {
+        const x = placeAll(d, ed.pool, boardId)
+        r = x
+        return x.draft
+      })
+    )
+      ed.toast(
+        r.left
+          ? `已放上 ${r.placed} 条，插片不够，${r.left} 条留在待编排`
+          : `已放上 ${r.placed} 条${allBoards(ed.draft).find((b) => b.board.id === boardId)?.board.kind === 'whole' ? '，并按自动排序排好' : ''}`,
+        'info',
+      )
+  }
+  return (
+    <Menu>
+      <MenuTrigger asChild>
+        <Button size="sm" variant="ghost" className="h-6 px-2 text-[12px]" disabled={!count || !boards.length}>
+          全部放到… <ChevronDown size={12} />
+        </Button>
+      </MenuTrigger>
+      <MenuContent align="start">
+        <MenuLabel>把 {count} 条待编排全部放到</MenuLabel>
+        {boards.map(({ shelf, board }) => (
+          <MenuItem key={board.id} onSelect={() => run(board.id)} hint={board.kind === 'whole' ? '整版' : '空插片'}>
+            <CornerDownRight size={13} className="text-ink-3" />
+            {boardLabel(board.no)}
+            <span className="text-[11.5px] text-ink-3">{shelf.name || shelfLabel(shelf.no)}</span>
+          </MenuItem>
+        ))}
+      </MenuContent>
+    </Menu>
+  )
+}
+
 /** 待编排为 0：一句话配鼠尾草色小对勾 */
 function AllDone() {
   return (
@@ -80,6 +130,7 @@ function Zone({
   count,
   dragging,
   dashed,
+  action,
   children,
 }: {
   id: string
@@ -90,6 +141,7 @@ function Zone({
   count: number
   dragging: boolean
   dashed?: boolean
+  action?: ReactNode
   children: ReactNode
 }) {
   const drop = useDroppable({ id })
@@ -117,6 +169,7 @@ function Zone({
         <span className={cn('size-2 shrink-0 rounded-full', dot)} />
         <span className="shrink-0 text-[13px] font-semibold">{title}</span>
         <span className="shrink-0 text-[12px] tabular-nums text-ink-3">{count}</span>
+        {action}
         <span className="ml-auto truncate text-[11.5px] text-ink-3">{drop.isOver ? overHint : hint}</span>
       </header>
       <div className="flex min-h-0 flex-1 flex-wrap content-start gap-2 overflow-auto pb-0.5">{children}</div>
@@ -163,6 +216,7 @@ export function Tray({ open, onToggle, dragging }: { open: boolean; onToggle: ()
         overHint="松手放回待编排"
         count={wait.length}
         dragging={dragging}
+        action={<PlaceAllMenu count={wait.length} />}
       >
         {wait.map((it) => (
           <TrayChip key={it.key} item={it} />

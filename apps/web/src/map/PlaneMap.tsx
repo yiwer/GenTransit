@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { cn } from '@/lib/utils'
 import { MapOverlay, ZoomControls } from './overlay'
+import { saveView, type StartView } from './initial-view'
 import { DEFAULT_CENTER, LABEL_MAX_MPP, type LngLat, type MapProps } from './types'
 
 const M_PER_DEG_LAT = 110574
@@ -16,8 +17,8 @@ interface View {
   mpp: number
 }
 
-function fitView(points: LngLat[], w: number, h: number): View {
-  if (!points.length) return { lng: DEFAULT_CENTER[0], lat: DEFAULT_CENTER[1], mpp: 12 }
+function fitView(points: LngLat[], w: number, h: number, start?: StartView): View {
+  if (!points.length) return start ?? { lng: DEFAULT_CENTER[0], lat: DEFAULT_CENTER[1], mpp: 12 }
   if (points.length === 1) return { lng: points[0][0], lat: points[0][1], mpp: 2 }
   const lngs = points.map((p) => p[0])
   const lats = points.map((p) => p[1])
@@ -45,13 +46,15 @@ export function PlaneMap({
   fit,
   className,
   overlay,
+  onViewport,
+  start,
   notice = '示意坐标平面 · 未配置高德底图',
-}: MapProps & { notice?: string }) {
+}: MapProps & { notice?: string; start?: StartView }) {
   const wrap = useRef<HTMLDivElement>(null)
   const [box, setBox] = useState({ w: 800, h: 600 })
   // 量到容器真实尺寸后再适配一次视野（首帧只能按估计尺寸）
   const [measured, setMeasured] = useState(false)
-  const [view, setView] = useState<View>(() => fitView(fit?.points ?? [], 800, 600))
+  const [view, setView] = useState<View>(() => fitView(fit?.points ?? [], 800, 600, start))
   const [hoverLocal, setHoverLocal] = useState<string | null>(null)
   const drag = useRef<{ kind: 'pan' | 'marker'; sx: number; sy: number; view: View; moved: boolean } | null>(null)
   const pickRef = useRef(onPick)
@@ -74,9 +77,22 @@ export function PlaneMap({
   // fit.key 变化时调整视野
   const fitKey = fit?.key
   useEffect(() => {
-    if (fit) setView(fitView(fit.points, box.w, box.h))
+    if (fit) setView(fitView(fit.points, box.w, box.h, start))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitKey, measured])
+
+  // 视野变化后记下视野（F-COM-18），并告诉使用方（地图点选加站）；拖动中不报，停下 250 ms 后报一次
+  const viewportRef = useRef(onViewport)
+  viewportRef.current = onViewport
+  useEffect(() => {
+    const t = setTimeout(() => {
+      saveView(view)
+      const dx = ((box.w / 2) * view.mpp) / mPerDegLng(view.lat)
+      const dy = ((box.h / 2) * view.mpp) / M_PER_DEG_LAT
+      viewportRef.current?.([view.lng - dx, view.lat - dy, view.lng + dx, view.lat + dy], view.mpp)
+    }, 250)
+    return () => clearTimeout(t)
+  }, [view, box])
 
   const toPx = (lng: number, lat: number): [number, number] => [
     box.w / 2 + ((lng - view.lng) * mPerDegLng(view.lat)) / view.mpp,
