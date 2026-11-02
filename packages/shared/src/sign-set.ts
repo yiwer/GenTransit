@@ -583,7 +583,12 @@ export function moveShelf(src: SignSetDraft, shelfId: string, delta: number): Si
   return d
 }
 
-export function addBoard(src: SignSetDraft, shelfId: string): { draft: SignSetDraft; boardId: string } {
+/** 加一块整版站牌；face 缺省为正面（M7：立面上每个面各有"加站牌"） */
+export function addBoard(
+  src: SignSetDraft,
+  shelfId: string,
+  face: BoardFace = 'front',
+): { draft: SignSetDraft; boardId: string } {
   const d = clone(src)
   const shelf = findShelf(d, shelfId)
   if (!shelf) throw new DraftError('站架不存在')
@@ -592,7 +597,7 @@ export function addBoard(src: SignSetDraft, shelfId: string): { draft: SignSetDr
   const b: BoardDraft = {
     id: newId(),
     no,
-    face: 'front',
+    face,
     kind: 'whole',
     width: 1200,
     height: 1800,

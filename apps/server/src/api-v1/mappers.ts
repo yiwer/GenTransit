@@ -7,6 +7,7 @@ import {
   type Passage,
   type RouteInfo,
   type RouteKind,
+  type ShelfForm,
   type SignSetDraft,
   type V1Line,
   type V1Passage,
@@ -175,7 +176,7 @@ export interface SignSetBundle {
   shelves: {
     id: string
     no: number
-    type: { id: string; name: string }
+    type: { id: string; name: string; form: ShelfForm }
     name: string
     desc: string
     noPhysical: boolean
@@ -224,7 +225,7 @@ export function signSetOf(b: SignSetBundle): V1SignSet {
     shelves: b.shelves.map((sh) => ({
       id: sh.id,
       no: sh.no,
-      type: { id: sh.type.id, name: sh.type.name },
+      type: { id: sh.type.id, name: sh.type.name, form: sh.type.form },
       name: sh.name,
       desc: sh.desc,
       noPhysical: sh.noPhysical,

@@ -1,4 +1,4 @@
-// 基础数据（5.7）：七类字典、行政区划（市 → 区 → 街道）、公交公司、站架模板（M3）
+// 基础数据（5.7）：六类字典、站架类型（M7）、行政区划（市 → 区 → 街道）、公交公司、站架模板（M3）
 import {
   DICT_CATEGORIES,
   DICT_CATEGORY_LABEL,
@@ -25,11 +25,13 @@ import { keys, useCompanies, useDicts, useRegions } from '@/features/common/data
 import { del, isApiError, post, put, uploadFile } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { ShelfTemplatesTab } from './ShelfTemplatesTab'
+import { ShelfTypesTab } from './ShelfTypesTab'
 
 const TABS = [
   { to: 'dicts', label: '字典' },
   { to: 'regions', label: '行政区划' },
   { to: 'companies', label: '公交公司' },
+  { to: 'shelf-types', label: '站架类型' },
   { to: 'shelf-templates', label: '站架模板' },
 ]
 
@@ -39,7 +41,7 @@ export function BaseDataPage() {
     <div className="flex h-full flex-col">
       <PageHeader
         title="基础数据"
-        sub="被引用的字典项、行政区划、公交公司不能删除，只能改名；改名后所有引用处显示新名称"
+        sub="被引用的字典项、站架类型、行政区划、公交公司不能删除，只能改名；改名后所有引用处显示新名称"
       >
         <nav className="mt-4 flex gap-1" aria-label="基础数据分类">
           {TABS.map((t) => (
@@ -64,6 +66,7 @@ export function BaseDataPage() {
         {tab === 'dicts' && <DictTab />}
         {tab === 'regions' && <RegionTab />}
         {tab === 'companies' && <CompanyTab />}
+        {tab === 'shelf-types' && <ShelfTypesTab />}
         {tab === 'shelf-templates' && <ShelfTemplatesTab />}
       </div>
     </div>

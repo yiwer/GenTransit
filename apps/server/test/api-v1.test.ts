@@ -259,7 +259,7 @@ describe('只读 API 与 API Token（M4 T2、T4）', () => {
   /* ---------------- 已删除对象 ---------------- */
 
   it('已删除对象：九种类型；type、updatedSince 与游标生效', async () => {
-    const shelfType = (await api.post('/api/dicts').send({ category: 'shelfType', name: '单立柱' }).expect(201)).body
+    const shelfType = (await api.post('/api/shelf-types').send({ name: '单立柱', form: 'singlePost' }).expect(201)).body
     const road = (await api.post('/api/dicts').send({ category: 'road', name: '解放路' }).expect(201)).body
     const city = (await api.post('/api/regions').send({ level: 'city', name: '示例市' }).expect(201)).body
     const company = (await api.post('/api/companies').send({ name: '一公司' }).expect(201)).body
@@ -375,7 +375,8 @@ describe('只读 API 与 API Token（M4 T2、T4）', () => {
         .body as { id: string }
       const dict = async (category: string, name: string) =>
         (await api.post('/api/dicts').send({ category, name }).expect(201)).body as { id: string }
-      const shelfType = await dict('shelfType', '双立柱')
+      const shelfType = (await api.post('/api/shelf-types').send({ name: '双立柱', form: 'doublePost' }).expect(201))
+        .body as { id: string }
       const road = await dict('road', '解放路')
       await dict('fareSystem', '一票制')
       const city = (await api.post('/api/regions').send({ level: 'city', name: '示例市' }).expect(201)).body

@@ -1,4 +1,12 @@
-import { countsOf, poolOf, type DictItem, type Passage, type RouteInfo, type SignSetView } from '@gentransit/shared'
+import {
+  SHELF_PARAM_DEFAULTS,
+  countsOf,
+  poolOf,
+  type Passage,
+  type RouteInfo,
+  type ShelfTypeItem,
+  type SignSetView,
+} from '@gentransit/shared'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -60,7 +68,20 @@ function view(): SignSetView {
   return { ...v, counts: countsOf(poolOf(v, v.passages, v.routes)) }
 }
 
-const DICTS: DictItem[] = [{ id: 't1', category: 'shelfType', name: '双立柱站架', refCount: 1 }]
+const TYPES: ShelfTypeItem[] = [
+  {
+    id: 't1',
+    name: '双立柱站架',
+    form: 'doublePost',
+    // 单面：立面里只有一个面，比例与 M3 时相同
+    params: { ...SHELF_PARAM_DEFAULTS.doublePost, sides: 1 },
+    desc: '',
+    needsReview: false,
+    shelfCount: 1,
+    templateCount: 0,
+    updatedAt: '2026-11-01T00:00:00.000Z',
+  },
+]
 
 beforeAll(() => {
   // Radix 菜单在 jsdom 里需要的几个浏览器接口
@@ -83,7 +104,7 @@ function renderEditor(v = view()) {
   fetchMock.mockImplementation(async (url: string) =>
     String(url) === '/api/stops/s1/sign-set' ? Response.json(v) : Response.json([]),
   )
-  qc.setQueryData(keys.dicts, DICTS)
+  qc.setQueryData(keys.shelfTypes, TYPES)
   qc.setQueryData(templatesKey, [])
   const router = createMemoryRouter(
     [
@@ -118,7 +139,7 @@ describe('立面组件', () => {
       { id: `a${i}`, routeId: 'r1', pass: 1, placement: 'board' as const, boardId: b, slotId: null, order: 1 },
       { id: `z${i}`, routeId: 'r9', pass: 1, placement: 'board' as const, boardId: b, slotId: null, order: 2 },
     ])
-    render(<Elevation draft={v} pool={poolOf(v, v.passages, v.routes)} />)
+    render(<Elevation draft={v} pool={poolOf(v, v.passages, v.routes)} types={TYPES} />)
     const [narrow, mid, wide] = screen.getAllByTestId('sign-board')
     // 窄：只有线路牌与方向
     expect(within(narrow).queryByText('火车站')).toBeNull()

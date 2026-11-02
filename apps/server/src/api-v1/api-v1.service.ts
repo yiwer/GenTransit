@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import {
   TOMBSTONE_TYPES,
+  parseShelfSpec,
   type DeletedType,
   type V1BusCompany,
   type V1Deleted,
@@ -12,10 +13,12 @@ import {
   type V1Page,
   type V1Region,
   type V1ShelfTemplate,
+  type V1ShelfType,
   type V1Line,
   type V1SignSet,
   type V1Stop,
   type DictCategory,
+  type V1DictCategory,
   type TemplateBoard,
 } from '@gentransit/shared'
 import { notFound } from '../common/errors'
@@ -172,16 +175,35 @@ export class ApiV1Service {
     })
   }
 
-  dictItems(q: V1ListQuery & { category?: DictCategory }): Promise<V1Page<V1DictItem>> {
+  /**
+   * 字典项（向后兼容，M7 计划 3.5 节）：shelfType 这一类来自站架类型表。
+   * 两个来源各按（updatedAt，id）取一页，归并后再截取一页；游标里的（时间，ID）对两边同样有效
+   */
+  dictItems(q: V1ListQuery & { category?: V1DictCategory }): Promise<V1Page<V1DictItem>> {
+    const fromDict = q.category !== 'shelfType'
+    const fromShelfTypes = !q.category || q.category === 'shelfType'
     return readPage(
       this.prisma,
       q,
-      (tx, k, take) =>
-        tx.dictItem.findMany({
-          where: { AND: [keysetWhere('updatedAt', k), q.category ? { category: q.category } : {}] },
-          orderBy: keysetOrder('updatedAt'),
-          take,
-        }),
+      async (tx, k, take): Promise<V1DictRow[]> => {
+        const select = { id: true, name: true, createdAt: true, updatedAt: true } as const
+        const [dicts, types] = await Promise.all([
+          fromDict
+            ? tx.dictItem.findMany({
+                where: {
+                  AND: [keysetWhere('updatedAt', k), q.category ? { category: q.category as DictCategory } : {}],
+                },
+                orderBy: keysetOrder('updatedAt'),
+                take,
+                select: { ...select, category: true },
+              })
+            : [],
+          fromShelfTypes ? tx.shelfType.findMany({ ...this.keyset(k), take, select }) : [],
+        ])
+        return [...dicts, ...types.map((t) => ({ ...t, category: 'shelfType' as const }))]
+          .sort((a, b) => a.updatedAt.getTime() - b.updatedAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
+          .slice(0, take)
+      },
       byUpdated,
       (_tx, rows) =>
         rows.map((r) => ({
@@ -191,6 +213,28 @@ export class ApiV1Service {
           createdAt: iso(r.createdAt),
           changedAt: iso(r.updatedAt),
         })),
+    )
+  }
+
+  /** 站架类型（M7）：结构形式 + 参数；参数缺的字段补默认值 */
+  shelfTypes(q: V1ListQuery): Promise<V1Page<V1ShelfType>> {
+    return readPage(
+      this.prisma,
+      q,
+      (tx, k, take) => tx.shelfType.findMany({ ...this.keyset(k), take }),
+      byUpdated,
+      (_tx, rows) =>
+        rows.map((r) => {
+          const spec = parseShelfSpec(r.form, r.params)
+          return {
+            id: r.id,
+            name: r.name,
+            ...spec,
+            desc: r.desc,
+            createdAt: iso(r.createdAt),
+            changedAt: iso(r.updatedAt),
+          } as V1ShelfType
+        }),
     )
   }
 
@@ -236,13 +280,18 @@ export class ApiV1Service {
     return readPage(
       this.prisma,
       q,
-      (tx, k, take) => tx.shelfTemplate.findMany({ ...this.keyset(k), take, include: { type: REF } }),
+      (tx, k, take) =>
+        tx.shelfTemplate.findMany({
+          ...this.keyset(k),
+          take,
+          include: { type: { select: { id: true, name: true, form: true } } },
+        }),
       byUpdated,
       (_tx, rows) =>
         rows.map((r) => ({
           id: r.id,
           name: r.name,
-          type: { id: r.type.id, name: r.type.name },
+          type: { id: r.type.id, name: r.type.name, form: r.type.form },
           desc: r.desc,
           noPhysical: r.noPhysical,
           image: r.imageId ? fileOf(r.imageId) : null,
@@ -338,6 +387,14 @@ export class ApiV1Service {
   private keyset(k: Keyset) {
     return { where: keysetWhere('updatedAt', k), orderBy: keysetOrder('updatedAt') }
   }
+}
+
+interface V1DictRow {
+  id: string
+  category: V1DictCategory
+  name: string
+  createdAt: Date
+  updatedAt: Date
 }
 
 interface V1DeletedRow {

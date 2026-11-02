@@ -61,6 +61,7 @@ export async function api<T>(path: string, init: { method?: string; body?: unkno
 export const get = <T>(path: string, query?: Query) => api<T>(path, { query })
 export const post = <T>(path: string, body?: unknown) => api<T>(path, { method: 'POST', body: body ?? {} })
 export const put = <T>(path: string, body?: unknown) => api<T>(path, { method: 'PUT', body: body ?? {} })
+export const patch = <T>(path: string, body?: unknown) => api<T>(path, { method: 'PATCH', body: body ?? {} })
 export const del = <T>(path: string) => api<T>(path, { method: 'DELETE' })
 
 export async function uploadFile(file: File): Promise<Upload> {

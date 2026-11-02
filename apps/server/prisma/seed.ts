@@ -22,8 +22,15 @@ import {
   stopLabel,
   stopSnapshot,
   updateBoard,
+  attachedParams,
+  doublePostParams,
+  ePostParams,
+  shelterParams,
+  singlePostParams,
+  totemParams,
   type PassageRef,
   type Ref,
+  type ShelfSpec,
   type ShelfTemplateLike,
   type SignSetDraft,
   type TemplateBoard,
@@ -157,7 +164,6 @@ function nearestRoad(x: number, y: number) {
 }
 
 const DICTS: Record<DictCategory, string[]> = {
-  shelfType: ['双立柱站架', '单立柱站架', '候车亭灯箱', '电子站牌立杆'],
   maintainer: ['示例公交一公司', '示例公交二公司', '示例市政养护中心'],
   road: ROADS.map((r) => r.name),
   fareSystem: ['一票制', '分段计价'],
@@ -165,6 +171,32 @@ const DICTS: Record<DictCategory, string[]> = {
   safety: ['护栏', '护栏 + 隔离墩', '无'],
   shelterType: ['标准候车亭', '简易雨棚', '无'],
 }
+
+/** 站架类型（M7）：原来字典里的四个，加三面图腾柱、挂墙站牌，覆盖全部六种结构形式 */
+const SHELF_TYPES: { name: string; desc: string; spec: ShelfSpec }[] = [
+  {
+    name: '双立柱站架',
+    desc: '主干道标准站牌，背靠背双面',
+    spec: { form: 'doublePost', params: doublePostParams.parse({ sides: 2 }) },
+  },
+  {
+    name: '单立柱站架',
+    desc: '支路简易站牌',
+    spec: { form: 'singlePost', params: singlePostParams.parse({ sides: 1 }) },
+  },
+  {
+    name: '候车亭灯箱',
+    desc: '标准候车亭，站牌在背板灯箱上',
+    spec: { form: 'shelter', params: shelterParams.parse({ mount: 'back', sides: 1, mountBottom: 400 }) },
+  },
+  { name: '电子站牌立杆', desc: '屏幕在牌组上方', spec: { form: 'ePost', params: ePostParams.parse({ sides: 2 }) } },
+  { name: '三面图腾柱', desc: '枢纽导向柱', spec: { form: 'totem', params: totemParams.parse({ faces: 3 }) } },
+  {
+    name: '挂墙站牌',
+    desc: '贴墙安装，单面',
+    spec: { form: 'attached', params: attachedParams.parse({ host: 'wall', sides: 1, mountBottom: 1000 }) },
+  },
+]
 
 type StopSeed = [code: string, name: string, dir: string, x: number, y: number, maintainer?: string]
 const STOPS: StopSeed[] = [
@@ -418,6 +450,13 @@ const TEMPLATES: { name: string; type: string; desc: string; noPhysical?: boolea
   },
   { name: '单立柱 · 单面', type: '单立柱站架', desc: '支路简易站牌', boards: [whole('front', 600, 1200)] },
   {
+    name: '三面图腾柱 · 每面一块',
+    type: '三面图腾柱',
+    desc: '枢纽导向柱，A、B、C 面各一块',
+    boards: [whole('A', 600, 1500), whole('B', 600, 1500), whole('C', 600, 1500)],
+  },
+  { name: '挂墙 · 单面', type: '挂墙站牌', desc: '贴墙单面站牌', boards: [whole('front', 900, 1200)] },
+  {
     name: '电子站牌 · 无实物',
     type: '电子站牌立杆',
     desc: '电子屏滚动显示，没有实物站牌架',
@@ -492,6 +531,23 @@ const SIGN_SETS: [code: string, build: Build][] = [
       d = placeOnBoard(d, p('K12路', 'up'), boardNo(d, 1).id)
       d = placeOnBoard(d, p('33路', 'loop', 2), boardNo(d, 2).id)
       return placeOnBoard(d, p('18路', 'up'), boardNo(d, 2).id)
+    },
+  ],
+  [
+    's13',
+    (d, { tpl, p }) => {
+      d = fromTemplate(d, tpl('三面图腾柱 · 每面一块'))
+      d = placeOnBoard(d, p('B1路', 'up'), boardNo(d, 1).id)
+      d = placeOnBoard(d, p('B1路', 'down'), boardNo(d, 2).id)
+      return placeOnBoard(d, p('环1路', 'loop'), boardNo(d, 3).id)
+    },
+  ],
+  [
+    's28',
+    (d, { tpl, p }) => {
+      d = fromTemplate(d, tpl('挂墙 · 单面'))
+      for (const x of [p('1路', 'down'), p('K12路', 'down')]) d = placeOnBoard(d, x, boardNo(d, 1).id)
+      return d
     },
   ],
   [
@@ -581,7 +637,13 @@ async function main() {
     },
   })
 
-  const shelfTypeRef = (name: string) => d('shelfType', name)!
+  const shelfTypes: Record<string, Ref> = {}
+  for (const t of SHELF_TYPES)
+    shelfTypes[t.name] = await prisma.shelfType.create({
+      data: { name: t.name, desc: t.desc, form: t.spec.form, params: t.spec.params as Prisma.InputJsonValue },
+      select: { id: true, name: true },
+    })
+  const shelfTypeRef = (name: string) => shelfTypes[name]
   for (const t of TEMPLATES)
     await prisma.shelfTemplate.create({
       data: {
@@ -831,7 +893,7 @@ async function main() {
 
   console.log(
     `已写入示例市：${STOPS.length} 个站点、${LINES.length} 条线路、${LANDMARKS.length} 个地标、` +
-      `${TEMPLATES.length} 个站架模板、${SIGN_SETS.length} 个编排过的站牌集`,
+      `${SHELF_TYPES.length} 个站架类型、${TEMPLATES.length} 个站架模板、${SIGN_SETS.length} 个编排过的站牌集`,
   )
 }
 

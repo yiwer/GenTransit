@@ -37,7 +37,7 @@ describe('站牌集（M3 T2、T3）', () => {
   beforeEach(async () => {
     await t.reset()
     api = await t.login()
-    shelfType = (await api.post('/api/dicts').send({ category: 'shelfType', name: '双立柱站架' }).expect(201)).body
+    shelfType = (await api.post('/api/shelf-types').send({ name: '双立柱站架', form: 'doublePost' }).expect(201)).body
     const mk = async (name: string, direction: string) =>
       (await api.post('/api/stops').send({ name, direction, lng: 120.2, lat: 30.25 }).expect(201)).body
         .item as StopDetail
@@ -456,7 +456,7 @@ describe('站牌集（M3 T2、T3）', () => {
         boards: [{ face: 'front', kind: 'whole', width: 600, height: 1200 }],
       })
       .expect(201)
-    const r = await api.delete(`/api/dicts/${shelfType.id}`).expect(409)
+    const r = await api.delete(`/api/shelf-types/${shelfType.id}`).expect(409)
     expect(r.body.details.referrers.map((x: { type: string; name: string }) => `${x.type}:${x.name}`)).toEqual([
       '站牌集:人民广场（东）',
       '站架模板:单面',
@@ -469,7 +469,7 @@ describe('站牌集（M3 T2、T3）', () => {
   })
 
   it('站架模板：新建、按站架类型分组列出、同类型内名称唯一、修改、删除', async () => {
-    const shelter = (await api.post('/api/dicts').send({ category: 'shelfType', name: '候车亭灯箱' }).expect(201)).body
+    const shelter = (await api.post('/api/shelf-types').send({ name: '候车亭灯箱', form: 'shelter' }).expect(201)).body
     const body = {
       name: '候车亭灯箱 · 3 插片',
       typeId: shelter.id,

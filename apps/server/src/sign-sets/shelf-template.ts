@@ -41,8 +41,8 @@ export class ShelfTemplateService {
   }
 
   private async check(input: ShelfTemplateInput, exceptId?: string) {
-    const type = await this.prisma.dictItem.findUnique({ where: { id: input.typeId } })
-    if (type?.category !== 'shelfType') throw invalid('站架类型不存在')
+    const type = await this.prisma.shelfType.findUnique({ where: { id: input.typeId } })
+    if (!type) throw invalid('站架类型不存在')
     if (input.imageId && !(await this.prisma.upload.findUnique({ where: { id: input.imageId } })))
       throw invalid('示意图不存在')
     const dup = await this.prisma.shelfTemplate.findFirst({

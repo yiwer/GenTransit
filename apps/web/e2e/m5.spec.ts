@@ -29,10 +29,10 @@ const at = (base: [number, number], x: number, y: number): [number, number] => [
 ]
 
 async function shelfType(page: Page) {
-  const all = await api<{ id: string; name: string }[]>(page, 'get', '/api/dicts?category=shelfType')
+  const all = await api<{ id: string; name: string }[]>(page, 'get', '/api/shelf-types')
   return (
     all.find((d) => d.name === '双立柱站架') ??
-    (await api<{ id: string }>(page, 'post', '/api/dicts', { category: 'shelfType', name: '双立柱站架' }))
+    (await api<{ id: string }>(page, 'post', '/api/shelf-types', { name: '双立柱站架', form: 'doublePost' }))
   )
 }
 

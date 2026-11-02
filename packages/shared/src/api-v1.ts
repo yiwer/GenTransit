@@ -2,8 +2,6 @@
 // 服务端按这些模式生成 OpenAPI 文档（z.toJSONSchema），契约测试用它们严格校验响应
 import { z } from 'zod'
 import {
-  DICT_CATEGORIES,
-  DICT_CATEGORY_LABEL,
   EXT_OWNERS,
   EXT_OWNER_LABEL,
   EXT_TYPES,
@@ -16,6 +14,8 @@ import {
   ROUTE_KIND_LABEL,
   STOP_SECTIONS,
   STOP_SECTION_LABEL,
+  V1_DICT_CATEGORIES,
+  V1_DICT_CATEGORY_LABEL,
 } from './enums'
 import {
   LINE_STATUSES,
@@ -35,6 +35,7 @@ import {
   SLOT_KINDS,
   SLOT_KIND_LABEL,
 } from './sign-set'
+import { SHELF_FORMS, SHELF_FORM_LABEL, SHELF_PARAM_SCHEMAS, type ShelfForm } from './shelf-type'
 
 export const API_V1_PREFIX = '/api/v1'
 
@@ -69,6 +70,12 @@ export const v1Ext = z
 
 const nullable = <T extends z.ZodType>(t: T) => t.nullable()
 const stamps = { createdAt: time, changedAt: time.describe('"有变化"的时间，增量同步按它筛选与排序') }
+
+const shelfForm = enumOf(SHELF_FORMS, SHELF_FORM_LABEL, '结构形式')
+/** 站牌集、站架模板里的站架类型：引用 + 结构形式（M7） */
+export const v1ShelfTypeRef = z
+  .strictObject({ id, name: z.string(), form: shelfForm })
+  .describe('站架类型引用：{ id, name, form }，name 为当前名称；参数见 /api/v1/shelf-types')
 
 /* ---------------- 资源 ---------------- */
 
@@ -172,7 +179,7 @@ export const v1Board = z.strictObject({
 export const v1Shelf = z.strictObject({
   id,
   no: z.number().int(),
-  type: v1Ref.describe('站架类型（字典项）'),
+  type: v1ShelfTypeRef,
   name: z.string(),
   desc: z.string(),
   noPhysical: z.boolean().describe('无实物站架'),
@@ -245,8 +252,36 @@ export const v1Landmark = z
   .describe('地标')
 
 export const v1DictItem = z
-  .strictObject({ id, category: enumOf(DICT_CATEGORIES, DICT_CATEGORY_LABEL, '字典类别'), name: z.string(), ...stamps })
-  .describe('字典项')
+  .strictObject({
+    id,
+    category: enumOf(V1_DICT_CATEGORIES, V1_DICT_CATEGORY_LABEL, '字典类别'),
+    name: z.string(),
+    ...stamps,
+  })
+  .describe('字典项。shelfType 这一类已过时（M7）：数据来自站架类型，请改用 /api/v1/shelf-types')
+
+const v1ShelfTypeOf = <F extends ShelfForm>(form: F) =>
+  z.strictObject({
+    id,
+    name: z.string(),
+    form: z.literal(form).describe(SHELF_FORM_LABEL[form]),
+    params: z.strictObject(SHELF_PARAM_SCHEMAS[form].shape).describe(`${SHELF_FORM_LABEL[form]}的参数，长度单位毫米`),
+    desc: z.string(),
+    ...stamps,
+  })
+
+export const v1ShelfType = z
+  .discriminatedUnion('form', [
+    v1ShelfTypeOf('singlePost'),
+    v1ShelfTypeOf('doublePost'),
+    v1ShelfTypeOf('shelter'),
+    v1ShelfTypeOf('totem'),
+    v1ShelfTypeOf('attached'),
+    v1ShelfTypeOf('ePost'),
+  ])
+  .describe(
+    `站架类型（M7）：结构形式 + 尺寸参数（毫米）。form：${SHELF_FORMS.map((f) => `${f}=${SHELF_FORM_LABEL[f]}`).join('，')}。通用参数 mountBottom 为牌面下沿离地，orientation 为 parallel（平行路缘）或 perpendicular（垂直路缘）。站架可用的面：sides=1 只有 front，sides=2 有 front、back；多面柱为 A 起的 faces 个面`,
+  )
 
 export const v1Region = z
   .strictObject({
@@ -274,7 +309,7 @@ export const v1ShelfTemplate = z
   .strictObject({
     id,
     name: z.string(),
-    type: v1Ref.describe('站架类型（字典项）'),
+    type: v1ShelfTypeRef,
     desc: z.string(),
     noPhysical: z.boolean(),
     image: nullable(v1File).describe('示意图'),
@@ -326,6 +361,7 @@ export const DELETED_TYPES = [
   'region',
   'busCompany',
   'shelfTemplate',
+  'shelfType',
 ] as const
 export type DeletedType = (typeof DELETED_TYPES)[number]
 export const DELETED_TYPE_LABEL: Record<DeletedType, string> = {
@@ -338,6 +374,7 @@ export const DELETED_TYPE_LABEL: Record<DeletedType, string> = {
   region: '行政区划',
   busCompany: '公交公司',
   shelfTemplate: '站架模板',
+  shelfType: '站架类型',
 }
 /** 墓碑表记录的类型（站点、线路、站牌集的删除记在快照里） */
 export const TOMBSTONE_TYPES = DELETED_TYPES.filter(
@@ -396,7 +433,7 @@ export const v1ListQuery = (max = V1_LIMIT_MAX) =>
 export type V1ListQuery = z.infer<ReturnType<typeof v1ListQuery>>
 
 export const v1DictQuery = v1ListQuery().extend({
-  category: enumOf(DICT_CATEGORIES, DICT_CATEGORY_LABEL, '字典类别').optional(),
+  category: enumOf(V1_DICT_CATEGORIES, V1_DICT_CATEGORY_LABEL, '字典类别').optional(),
 })
 export const v1DeletedQuery = v1ListQuery().extend({
   type: enumOf(DELETED_TYPES, DELETED_TYPE_LABEL, '只看某一类型').optional(),
@@ -409,6 +446,7 @@ export type V1Passage = z.infer<typeof v1Passage>
 export type V1Landmark = z.infer<typeof v1Landmark>
 export type V1LandmarkCategory = z.infer<typeof v1LandmarkCategory>
 export type V1DictItem = z.infer<typeof v1DictItem>
+export type V1ShelfType = z.infer<typeof v1ShelfType>
 export type V1Region = z.infer<typeof v1Region>
 export type V1BusCompany = z.infer<typeof v1BusCompany>
 export type V1ShelfTemplate = z.infer<typeof v1ShelfTemplate>

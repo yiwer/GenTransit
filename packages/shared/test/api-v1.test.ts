@@ -219,7 +219,7 @@ describe('只读 API 模式', () => {
         {
           id: S(6),
           no: 1,
-          type: ref,
+          type: { ...ref, form: 'doublePost' },
           name: '',
           desc: '',
           noPhysical: false,

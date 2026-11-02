@@ -40,7 +40,7 @@ describe('编排计数快照', () => {
   beforeEach(async () => {
     await t.reset()
     api = await t.login()
-    type = (await api.post('/api/dicts').send({ category: 'shelfType', name: '双立柱站架' }).expect(201)).body
+    type = (await api.post('/api/shelf-types').send({ name: '双立柱站架', form: 'doublePost' }).expect(201)).body
     s = {}
     for (const name of ['甲', '乙', '丙', '丁', '戊'])
       s[name] = (

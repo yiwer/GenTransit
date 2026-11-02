@@ -15,7 +15,7 @@ import { DirBadge, StatusChip } from '@/components/gt/symbols'
 import { Button } from '@/components/ui/button'
 import { Input, NativeSelect } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
-import { useDict } from '@/features/common/data'
+import { useShelfTypes } from '@/features/common/data'
 import { Plates, regionText } from '@/features/stops/shared'
 import { withQuery } from '@/lib/api'
 import { cn, fmtDateTime } from '@/lib/utils'
@@ -124,7 +124,7 @@ export function SignSetListPage() {
   useEffect(() => setQ((cur) => (cur.trim() === f.q ? cur : f.q)), [f.q])
   const [preview, setPreview] = useState<string | null>(null)
   const list = useSignSetList({ ...f, sort, page, size })
-  const shelfTypes = useDict('shelfType').data ?? []
+  const shelfTypes = useShelfTypes().data ?? []
   const sizes = useBoardSizes().data ?? []
   const items = list.data?.items ?? []
   const total = list.data?.total ?? 0

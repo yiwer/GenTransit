@@ -35,7 +35,7 @@ import { useToast } from '@/components/gt/toast'
 import { Button, IconButton } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/dropdown-menu'
-import { useExtFields, useLandmarks } from '@/features/common/data'
+import { shelfTypesQuery, useExtFields, useLandmarks } from '@/features/common/data'
 import { signSetQuery, useSignSet } from '@/features/sign-sets/data'
 import { SignSetGlance } from '@/features/sign-sets/SignSetPreview'
 import { del, get, isApiError } from '@/lib/api'
@@ -51,10 +51,12 @@ import { kindLabel, regionText, useStop } from './shared'
 export function StopDetailPage() {
   const { id } = useParams()
   const q = useStop(id)
-  // 站牌集与站点详情同时请求，不等详情返回（M6 计划 4.4）
+  // 站牌集、站架类型与站点详情同时请求，不等详情返回（M6 计划 4.4；M7 立面要按站架类型画）
   const qc = useQueryClient()
   useEffect(() => {
-    if (id) void qc.prefetchQuery(signSetQuery(id))
+    if (!id) return
+    void qc.prefetchQuery(signSetQuery(id))
+    void qc.prefetchQuery(shelfTypesQuery)
   }, [qc, id])
   if (q.isPending)
     return (

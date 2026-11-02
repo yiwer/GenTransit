@@ -34,12 +34,15 @@ async function drag(page: Page, from: Locator, to: Locator) {
   await page.waitForTimeout(120)
 }
 
-/** 站架类型：同一个测试库里各用例共用，已有就沿用 */
+/** 站架类型（M7 起是独立数据）：同一个测试库里各用例共用，已有就沿用 */
 async function shelfType(page: Page, name: string) {
-  const all = await api<{ id: string; category: string; name: string }[]>(page, 'get', '/api/dicts?category=shelfType')
+  const all = await api<{ id: string; name: string }[]>(page, 'get', '/api/shelf-types')
   return (
     all.find((d) => d.name === name) ??
-    (await api<{ id: string }>(page, 'post', '/api/dicts', { category: 'shelfType', name }))
+    (await api<{ id: string }>(page, 'post', '/api/shelf-types', {
+      name,
+      form: name.includes('单立柱') ? 'singlePost' : 'doublePost',
+    }))
   )
 }
 

@@ -38,7 +38,7 @@ const STRUCT_INCLUDE = {
   shelves: {
     orderBy: { sort: 'asc' as const },
     include: {
-      type: REF,
+      type: { select: { id: true, name: true, form: true } },
       boards: { orderBy: { sort: 'asc' as const }, include: { slots: { orderBy: { sort: 'asc' as const } } } },
     },
   },
@@ -278,7 +278,7 @@ export class SignSetService {
     if (foreign.some((n) => n > 0)) throw invalid('提交里有属于别的站牌集的站架、站牌或插片')
 
     const typeIds = [...new Set(input.shelves.map((s) => s.typeId))]
-    const types = await tx.dictItem.count({ where: { id: { in: typeIds }, category: 'shelfType' } })
+    const types = await tx.shelfType.count({ where: { id: { in: typeIds } } })
     if (types !== typeIds.length) throw invalid('站架类型不存在')
 
     const routeIds = [...new Set(input.schedules.map((s) => s.routeId))]

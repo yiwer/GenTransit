@@ -25,9 +25,10 @@ export async function seedDesignScale(db: RawSql) {
   await sql`
     INSERT INTO "Route" (id, "lineId", kind, "updatedAt")
     SELECT gen_random_uuid(), l.id, k.kind::"RouteKind", now() FROM "Line" l CROSS JOIN (VALUES ('up'), ('down')) AS k(kind)`
+  // hashtext 是 int4：先转 bigint，h + n * 613 才不会在哈希接近 2^31 时溢出
   await sql`
     WITH st AS (SELECT id, row_number() OVER (ORDER BY id) AS rn FROM "Stop"),
-         rr AS (SELECT id, abs(hashtext(id::text)) AS h FROM "Route")
+         rr AS (SELECT id, abs(hashtext(id::text)::bigint) AS h FROM "Route")
     INSERT INTO "RouteStop" (id, "routeId", "stopId", seq, times, "updatedAt")
     SELECT gen_random_uuid(), rr.id, st.id, n, '{}', now()
     FROM rr CROSS JOIN generate_series(1, 30) AS n
@@ -41,15 +42,15 @@ export async function seedSignSetShelves(db: RawSql) {
   const sql = sqlOf(db)
   await sql`INSERT INTO "SignSet" (id, "stopId", "updatedAt") SELECT gen_random_uuid(), id, now() FROM "Stop"`
   await sql`
-    INSERT INTO "DictItem" (id, category, name, "updatedAt")
-    VALUES (gen_random_uuid(), 'shelfType', '双立柱站架', now()), (gen_random_uuid(), 'shelfType', '候车亭灯箱', now())`
+    INSERT INTO "ShelfType" (id, name, form, params, "updatedAt")
+    VALUES (gen_random_uuid(), '双立柱站架', 'doublePost', '{}', now()), (gen_random_uuid(), '候车亭灯箱', 'shelter', '{}', now())`
   // 每个站牌集 2～3 个站架（共约 5 万），每个站架 2 块整版站牌（约 10 万）
   await sql`
     INSERT INTO "Shelf" (id, "signSetId", "typeId", no, sort, "updatedAt")
     SELECT gen_random_uuid(), ss.id,
-           (SELECT id FROM "DictItem" WHERE category = 'shelfType' ORDER BY name LIMIT 1 OFFSET n % 2), n, n - 1, now()
+           (SELECT id FROM "ShelfType" ORDER BY name LIMIT 1 OFFSET n % 2), n, n - 1, now()
     FROM "SignSet" ss CROSS JOIN generate_series(1, 3) AS n
-    WHERE n <= 2 + abs(hashtext(ss.id::text)) % 2`
+    WHERE n <= 2 + abs(hashtext(ss.id::text)::bigint) % 2`
   await sql`
     INSERT INTO "Board" (id, "shelfId", "signSetId", no, face, kind, width, height, sort, "updatedAt")
     SELECT gen_random_uuid(), sh.id, sh."signSetId", (sh.no - 1) * 2 + k, (ARRAY['front', 'back'])[k]::"BoardFace",
@@ -71,10 +72,10 @@ export async function seedSchedules(db: RawSql) {
     SELECT gen_random_uuid(), p.sid, p."routeId", p.pass, 'board', b.id,
            row_number() OVER (PARTITION BY b.id ORDER BY p."routeId", p.pass)
     FROM p JOIN b ON b."signSetId" = p.sid
-    WHERE abs(hashtext(p."routeId"::text || p.sid::text)) % 10 <> 0`
+    WHERE abs(hashtext(p."routeId"::text || p.sid::text)::bigint) % 10 <> 0`
   await sql`
     INSERT INTO "Schedule" (id, "signSetId", "routeId", pass, placement, "boardId", "order")
     SELECT gen_random_uuid(), "signSetId", "routeId", 9, 'board', "boardId", 1000
     FROM (SELECT DISTINCT ON ("signSetId") * FROM "Schedule" ORDER BY "signSetId", id) x
-    WHERE abs(hashtext("signSetId"::text)) % 20 = 0`
+    WHERE abs(hashtext("signSetId"::text)::bigint) % 20 = 0`
 }

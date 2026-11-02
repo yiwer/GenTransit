@@ -34,8 +34,6 @@ const COUNT = {
   shelterTypeStops: true,
   maintainerStops: true,
   fareSystemLines: true,
-  shelves: true,
-  shelfTemplates: true,
 } as const
 
 type Row = { id: string; category: DictItem['category']; name: string; _count?: Record<keyof typeof COUNT, number> }

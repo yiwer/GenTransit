@@ -8,24 +8,24 @@ export const ORIENTATION_MODES = ['orientation', 'code'] as const
 export type OrientationMode = (typeof ORIENTATION_MODES)[number]
 export const ORIENTATION_MODE_LABEL: Record<OrientationMode, string> = { orientation: '方位模式', code: '编码模式' }
 
-export const DICT_CATEGORIES = [
-  'shelfType',
-  'maintainer',
-  'road',
-  'fareSystem',
-  'platformType',
-  'safety',
-  'shelterType',
-] as const
+/** 字典六类；站架类型 M7 起是独立数据（shelf-type.ts），只读 API 的 dict-items 仍兼容返回它 */
+export const DICT_CATEGORIES = ['maintainer', 'road', 'fareSystem', 'platformType', 'safety', 'shelterType'] as const
 export type DictCategory = (typeof DICT_CATEGORIES)[number]
 export const DICT_CATEGORY_LABEL: Record<DictCategory, string> = {
-  shelfType: '站架类型',
   maintainer: '维护公司',
   road: '路段',
   fareSystem: '票制',
   platformType: '站台类型',
   safety: '安全设施',
   shelterType: '候车亭类型',
+}
+
+/** 只读 API dict-items 的类别：多一个过时的 shelfType，数据来自站架类型 */
+export const V1_DICT_CATEGORIES = ['shelfType', ...DICT_CATEGORIES] as const
+export type V1DictCategory = (typeof V1_DICT_CATEGORIES)[number]
+export const V1_DICT_CATEGORY_LABEL: Record<V1DictCategory, string> = {
+  shelfType: '站架类型（过时，请用 /api/v1/shelf-types）',
+  ...DICT_CATEGORY_LABEL,
 }
 
 export const REGION_LEVELS = ['city', 'district', 'street'] as const

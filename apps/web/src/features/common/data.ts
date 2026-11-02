@@ -9,12 +9,14 @@ import type {
   LandmarkCategory,
   Region,
   Settings,
+  ShelfTypeItem,
 } from '@gentransit/shared'
 import { useQuery } from '@tanstack/react-query'
 import { get } from '@/lib/api'
 
 export const keys = {
   dicts: ['dicts'] as const,
+  shelfTypes: ['shelf-types'] as const,
   regions: ['regions'] as const,
   companies: ['companies'] as const,
   settings: ['settings'] as const,
@@ -31,6 +33,13 @@ export function useDict(category: DictCategory) {
   const q = useDicts()
   return { ...q, data: q.data?.filter((d) => d.category === category) }
 }
+
+/** 全部站架类型（数量小）：立面、属性卡、模板页都按它画结构 */
+export const shelfTypesQuery = {
+  queryKey: keys.shelfTypes,
+  queryFn: () => get<ShelfTypeItem[]>('/api/shelf-types'),
+}
+export const useShelfTypes = () => useQuery(shelfTypesQuery)
 
 export const useRegions = () => useQuery({ queryKey: keys.regions, queryFn: () => get<Region[]>('/api/regions') })
 

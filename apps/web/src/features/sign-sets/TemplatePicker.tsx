@@ -7,6 +7,7 @@ import { Elevation } from '@/components/gt/elevation'
 import { OrbitLoader } from '@/components/gt/lively'
 import { Button } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
+import { useShelfTypes } from '@/features/common/data'
 import { cn } from '@/lib/utils'
 import { useShelfTemplates } from './data'
 
@@ -64,6 +65,7 @@ export function TemplatePicker({
   onPick: (ts: ShelfTemplate[]) => void
 }) {
   const q = useShelfTemplates()
+  const types = useShelfTypes().data
   const [picked, setPicked] = useState<string[]>([])
   const list = q.data ?? []
   const toggle = (id: string) =>
@@ -132,7 +134,7 @@ export function TemplatePicker({
                       )}
                     >
                       <span className="flex h-[76px] w-[104px] shrink-0 items-end justify-center overflow-hidden rounded-lg bg-surface-2">
-                        <Elevation draft={templatePreview(t)} pool={[]} height={52} bare />
+                        <Elevation draft={templatePreview(t)} pool={[]} types={types} height={52} maxHeight={66} bare />
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-[13.5px] font-medium text-ink">{t.name}</span>

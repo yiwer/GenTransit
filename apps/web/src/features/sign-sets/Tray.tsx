@@ -19,17 +19,19 @@ import { cn } from '@/lib/utils'
 import { useEditor } from './editor-api'
 import { PoolMenu } from './PlaceMenu'
 
-function TrayChip({ item, hidden }: { item: PoolItem; hidden?: boolean }) {
+function TrayChip({ item, hidden, locked }: { item: PoolItem; hidden?: boolean; locked?: boolean }) {
   const ed = useEditor()
-  const drag = useDraggable({ id: `pool:${item.key}` })
+  const drag = useDraggable({ id: `pool:${item.key}`, disabled: locked })
   return (
     <div
       ref={drag.setNodeRef}
       {...drag.attributes}
       {...drag.listeners}
-      aria-label={`${passageLabel(item)}${hidden ? '（隐藏）' : '（待编排）'}，可拖到站牌`}
+      aria-label={`${passageLabel(item)}${hidden ? '（隐藏）' : '（待编排）'}${locked ? '' : '，可拖到站牌'}`}
       className={cn(
-        'group/chip relative flex h-[46px] shrink-0 cursor-grab items-center gap-2 rounded-xl pl-1.5 pr-1 shadow-xs ring-1 ring-hairline transition-transform hover:-translate-y-0.5 hover:shadow-float focus-visible:outline-2 focus-visible:outline-accent',
+        'group/chip relative flex h-[46px] shrink-0 items-center',
+        locked ? 'cursor-default' : 'cursor-grab',
+        ' gap-2 rounded-xl pl-1.5 pr-1 shadow-xs ring-1 ring-hairline transition-transform hover:-translate-y-0.5 hover:shadow-float focus-visible:outline-2 focus-visible:outline-accent',
         hidden ? 'bg-surface-2' : 'bg-surface',
         drag.isDragging && 'opacity-40',
       )}
@@ -177,7 +179,20 @@ function Zone({
   )
 }
 
-export function Tray({ open, onToggle, dragging }: { open: boolean; onToggle: () => void; dragging: boolean }) {
+export function Tray({
+  open,
+  onToggle,
+  dragging,
+  locked,
+  onUnlock,
+}: {
+  open: boolean
+  onToggle: () => void
+  dragging: boolean
+  /** 3D 预览时托盘照常显示，但不能拖（M7 计划 5.3 节） */
+  locked?: boolean
+  onUnlock?: () => void
+}) {
   const ed = useEditor()
   const wait = ed.pool.filter((p) => p.status === 'waiting')
   const hidden = ed.pool.filter((p) => p.status === 'hidden')
@@ -208,6 +223,17 @@ export function Tray({ open, onToggle, dragging }: { open: boolean; onToggle: ()
       >
         <ChevronDown size={13} /> 收起托盘
       </button>
+      {locked && (
+        <div
+          className="absolute -top-[13px] left-4 z-[6] flex h-[26px] items-center gap-1.5 rounded-full bg-signal-soft px-3 text-[11.5px] text-signal-ink shadow-xs ring-1 ring-signal/30"
+          role="status"
+        >
+          3D 只能看，不能拖线路
+          <button type="button" onClick={onUnlock} className="font-semibold underline-offset-2 hover:underline">
+            切回立面编排
+          </button>
+        </div>
+      )}
       <Zone
         id="pool"
         title="待编排"
@@ -219,7 +245,7 @@ export function Tray({ open, onToggle, dragging }: { open: boolean; onToggle: ()
         action={<PlaceAllMenu count={wait.length} />}
       >
         {wait.map((it) => (
-          <TrayChip key={it.key} item={it} />
+          <TrayChip key={it.key} item={it} locked={locked} />
         ))}
         {wait.length === 0 && <AllDone />}
       </Zone>
@@ -234,7 +260,7 @@ export function Tray({ open, onToggle, dragging }: { open: boolean; onToggle: ()
         dashed
       >
         {hidden.map((it) => (
-          <TrayChip key={it.key} item={it} hidden />
+          <TrayChip key={it.key} item={it} hidden locked={locked} />
         ))}
         {hidden.length === 0 && (
           <span className="m-auto flex flex-col items-center gap-1 text-[12px] text-ink-4">

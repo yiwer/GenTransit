@@ -119,6 +119,11 @@ export class V1ReferenceController {
     return this.api.busCompanies(q)
   }
 
+  @Get('shelf-types')
+  shelfTypes(@Query(list) q: V1ListQuery) {
+    return this.api.shelfTypes(q)
+  }
+
   @Get('shelf-templates')
   shelfTemplates(@Query(list) q: V1ListQuery) {
     return this.api.shelfTemplates(q)

@@ -220,7 +220,7 @@ describe('只读 API 的"有变化"（M4 T3）', () => {
   /* ---------------- 站牌集的 changedAt ---------------- */
 
   it('站牌集：自身保存更新、不碰 rev 与 updatedAt；站点改名不更新', async () => {
-    const shelfType = (await api.post('/api/dicts').send({ category: 'shelfType', name: '单立柱' }).expect(201)).body
+    const shelfType = (await api.post('/api/shelf-types').send({ name: '单立柱', form: 'singlePost' }).expect(201)).body
     const v = (await api.get(`/api/stops/${s.a.id}/sign-set`).expect(200)).body as SignSetView
     let c = await step()
     const d = addShelf(v, { type: shelfType }).draft
@@ -268,7 +268,7 @@ describe('只读 API 的"有变化"（M4 T3）', () => {
   })
 
   it('改模式删走向、环线第二次途经、删除线路（含只有待编排的站牌集）', async () => {
-    const shelfType = (await api.post('/api/dicts').send({ category: 'shelfType', name: '单立柱' }).expect(201)).body
+    const shelfType = (await api.post('/api/shelf-types').send({ name: '单立柱', form: 'singlePost' }).expect(201)).body
     let l = await twoway([s.a.id, s.b.id, s.c.id], [s.b.id, s.a.id])
     // A 上有编排；B、C 只有待编排
     const v = (await api.get(`/api/stops/${s.a.id}/sign-set`).expect(200)).body as SignSetView

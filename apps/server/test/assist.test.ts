@@ -326,7 +326,7 @@ describe('M5 流程简化（T2–T4）', () => {
   /* ---------------- 沿线编排进度、队列 ---------------- */
 
   it('沿线编排进度：已编排、隐藏、待编排，站序移除后的失效站；停运；逐站编排队列的顺序', async () => {
-    const type = (await api.post('/api/dicts').send({ category: 'shelfType', name: '双立柱站架' }).expect(201)).body
+    const type = (await api.post('/api/shelf-types').send({ name: '双立柱站架', form: 'doublePost' }).expect(201)).body
     const [a, b, c, d] = [
       await stop('甲', '东'),
       await stop('乙', '东'),

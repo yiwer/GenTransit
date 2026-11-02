@@ -15,6 +15,7 @@ import {
   v1PageOf,
   v1Region,
   v1ShelfTemplate,
+  v1ShelfType,
   v1SignSet,
   v1Stop,
 } from '@gentransit/shared'
@@ -33,6 +34,7 @@ export const v1DictItemPage = v1PageOf(v1DictItem)
 export const v1RegionPage = v1PageOf(v1Region)
 export const v1BusCompanyPage = v1PageOf(v1BusCompany)
 export const v1ShelfTemplatePage = v1PageOf(v1ShelfTemplate)
+export const v1ShelfTypePage = v1PageOf(v1ShelfType)
 export const v1ExtFieldPage = v1PageOf(v1ExtField)
 export const v1DeletedPage = v1PageOf(v1Deleted)
 
@@ -50,6 +52,7 @@ const COMPONENTS: [string, z.ZodType][] = [
   ['Region', v1Region],
   ['BusCompany', v1BusCompany],
   ['ShelfTemplate', v1ShelfTemplate],
+  ['ShelfType', v1ShelfType],
   ['ExtField', v1ExtField],
   ['Deleted', v1Deleted],
   ['Error', v1Error],
@@ -62,6 +65,7 @@ const COMPONENTS: [string, z.ZodType][] = [
   ['RegionPage', v1RegionPage],
   ['BusCompanyPage', v1BusCompanyPage],
   ['ShelfTemplatePage', v1ShelfTemplatePage],
+  ['ShelfTypePage', v1ShelfTypePage],
   ['ExtFieldPage', v1ExtFieldPage],
   ['DeletedPage', v1DeletedPage],
 ]
@@ -143,7 +147,7 @@ export const V1_ENDPOINTS: V1Endpoint[] = [
     path: '/dict-items',
     tag: '参考数据',
     summary: '字典项',
-    description: `${LIST_NOTE}可按七类之一筛选。`,
+    description: `${LIST_NOTE}可按类别筛选。shelfType（站架类型）这一类已过时：M7 起站架类型是独立数据，这里仍返回它们的 ID 与名称以保持兼容，结构形式与参数请用 /shelf-types。`,
     query: v1DictQuery,
     response: v1DictItemPage,
   },
@@ -162,6 +166,14 @@ export const V1_ENDPOINTS: V1Endpoint[] = [
     description: LIST_NOTE,
     query: v1StopListQuery,
     response: v1BusCompanyPage,
+  },
+  {
+    path: '/shelf-types',
+    tag: '参考数据',
+    summary: '站架类型',
+    description: `${LIST_NOTE}结构形式与尺寸参数（毫米）。改站架类型不算引用它的站牌集"有变化"。站牌集、站架模板里的 type 带 form，参数从这里取。`,
+    query: v1StopListQuery,
+    response: v1ShelfTypePage,
   },
   {
     path: '/shelf-templates',

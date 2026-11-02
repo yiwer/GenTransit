@@ -1,5 +1,6 @@
-// 站台立面（M3 计划 4.1）：编辑器、预览抽屉、站点详情、站架模板共用。从原型 EditorElevation、parts 按正式规范重写。
-// 站架从左到右排开、按容器宽度折行；站牌画成实物：浅金属边框、墨绿牌头、虚线分隔的线路行；插片是嵌入面板。
+// 站台立面（M3 计划 4.1，M7 计划 5.2）：编辑器、预览抽屉、站点详情、站架模板共用。
+// 站架从左到右排开、按容器宽度折行；每个站架按站架类型画出结构（shelf-model 算出、shelf-art 画成 SVG），
+// 各面按类型里的顺序展开，站牌是绝对定位到挂牌位置的 DOM：浅金属边框、墨绿牌头、虚线分隔的线路行；插片是嵌入面板。
 // 只读模式只画；编辑模式（传 edit）提供放置目标、选中与菜单，拖放由外层 DndContext 处理
 import { DndContext, useDraggable, useDroppable } from '@dnd-kit/core'
 import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
@@ -16,16 +17,20 @@ import {
   passageLabel,
   shelfLabel,
   type BoardDraft,
+  type BoardFace,
   type PoolItem,
-  type RouteKind,
   type ScheduleDraft,
   type ShelfDraft,
+  type ShelfTypeItem,
   type SignSetDraft,
   type SlotDraft,
 } from '@gentransit/shared'
-import { GripVertical, Plus, X } from 'lucide-react'
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { GripVertical, Plus, TriangleAlert, X } from 'lucide-react'
+import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { cn, useStored } from '@/lib/utils'
+import { buildShelfModel, shelfFacesOf, type FaceModel, type ShelfModel } from '@/shelf-model'
+import { KIND_MARK } from '@/shelf-model/board-content'
+import { ShelfFaceArt, specOfType } from './shelf-art'
 import { RoutePlate } from './symbols'
 
 export type Zoom = 'compact' | 'standard' | 'large'
@@ -35,19 +40,15 @@ export const ZOOM_LABEL: Record<Zoom, string> = { compact: '紧凑', standard: '
 /** 比例档位记在本浏览器 */
 export const useStoredZoom = () => useStored<Zoom>('gt-elev-zoom', 'standard')
 
-export const KIND_MARK: Record<RouteKind, string> = {
-  up: '↑',
-  down: '↓',
-  inner: '⟳',
-  outer: '⟲',
-  loop: '⟳',
-  oneway: '→',
-}
+export { KIND_MARK }
 
-const POST_MM = 420 // 站牌下沿到地面（示意）
-const GAP_MM = 120 // 同一站架内站牌间距
-const shelfWidthMm = (sh: Pick<ShelfDraft, 'boards'>) =>
-  sh.boards.reduce((n, b) => n + b.width, 0) + GAP_MM * Math.max(0, sh.boards.length - 1) + 240
+/** 一个站架各面之间的折线（px） */
+const FOLD_PX = 18
+
+/** 立面里一个站架的模型：按站架类型与站牌算出（M7 计划第 4 节） */
+export function shelfModelOf(shelf: Pick<ShelfDraft, 'typeId' | 'noPhysical' | 'boards'>, types: ShelfTypeItem[]) {
+  return buildShelfModel(specOfType(types, shelf.typeId), shelfFacesOf(shelf.boards), { ghost: shelf.noPhysical })
+}
 
 export type Sel = { type: 'shelf' | 'board' | 'slot'; id: string }
 
@@ -55,7 +56,7 @@ export interface ElevationEdit {
   sel: Sel | null
   onSelect: (s: Sel | null) => void
   onRemove: (scheduleId: string) => void
-  onAddBoard: (shelfId: string) => void
+  onAddBoard: (shelfId: string, face: BoardFace) => void
   /** Alt+↑/↓ 在整版站牌内调整顺序 */
   onMove: (scheduleId: string, delta: number) => void
   /** 线路行、插片里的"…"菜单 */
@@ -275,8 +276,8 @@ function SignBoard({ board, scale, ghost }: { board: BoardDraft; scale: number; 
   const { draft, edit, bare } = useElev()
   const drop = useDroppable({ id: `board:${board.id}`, disabled: !edit })
   const list = onBoard(draft, board.id)
-  const W = Math.max(36, board.width * scale)
-  const H = Math.max(48, board.height * scale)
+  const W = Math.max(bare ? 4 : 36, board.width * scale)
+  const H = Math.max(bare ? 6 : 48, board.height * scale)
   const selected = edit?.sel?.type === 'board' && edit.sel.id === board.id
   const frame = bare ? 3 : 5
   const head = bare ? 12 : 30
@@ -288,7 +289,7 @@ function SignBoard({ board, scale, ghost }: { board: BoardDraft; scale: number; 
   const pad = bare ? 3 : 8
   const cw = (innerW - pad * 2 - 6 * (cols - 1)) / cols
   return (
-    <div className="flex flex-col items-center gap-1">
+    <>
       <div
         ref={drop.setNodeRef}
         onClick={
@@ -376,79 +377,132 @@ function SignBoard({ board, scale, ghost }: { board: BoardDraft; scale: number; 
         )}
       </div>
       {!bare && (
-        <span className="text-[11px] tabular-nums text-ink-3">
+        // 尺寸像制图里的标注，挂在牌下沿
+        <span className="pointer-events-none absolute left-1/2 top-full mt-1 -translate-x-1/2 whitespace-nowrap rounded-full bg-surface/85 px-1.5 text-[10.5px] leading-4 tabular-nums text-ink-3 ring-1 ring-hairline">
           {board.width}×{board.height}
+        </span>
+      )}
+    </>
+  )
+}
+
+/* ---------------- 站架 ---------------- */
+
+/** 一个面：结构层 SVG 在下，站牌按挂牌位置绝对定位在上 */
+function ShelfFace({
+  shelf,
+  model,
+  face,
+  scale,
+  label,
+}: {
+  shelf: ShelfDraft
+  model: ShelfModel
+  face: FaceModel
+  scale: number
+  label: boolean
+}) {
+  const { edit, bare } = useElev()
+  const boards = new Map(shelf.boards.map((b) => [b.id, b]))
+  const last = face.mounts.at(-1)
+  const bottom = model.bottom
+  const ghost = shelf.noPhysical
+  return (
+    <div
+      className="relative shrink-0"
+      style={{ width: face.width * scale, height: face.height * scale }}
+      data-testid="shelf-face"
+      data-face={face.face}
+      aria-label={label ? face.label : undefined}
+    >
+      <ShelfFaceArt face={face} ghost={ghost} className="absolute inset-0 size-full" />
+      {face.mounts.map((m) => {
+        const b = boards.get(m.boardId)
+        return (
+          b && (
+            <div key={m.boardId} className="absolute" style={{ left: m.x * scale, bottom: m.y * scale }}>
+              <SignBoard board={b} scale={scale} ghost={ghost} />
+            </div>
+          )
+        )
+      })}
+      {edit && face.face !== 'other' && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation()
+            edit.onAddBoard(shelf.id, face.face as BoardFace)
+          }}
+          aria-label={`给${shelfLabel(shelf.no)}${label ? `的${face.label}` : ''}加站牌`}
+          title={label ? `${face.label}加站牌` : '加站牌'}
+          className={cn(
+            'absolute flex items-center justify-center rounded-[10px] border-2 border-dashed border-hairline-2 bg-surface/40 text-ink-4 transition-opacity hover:border-accent hover:text-accent focus-visible:opacity-100',
+            last ? 'w-8 opacity-0 group-hover/shelf:opacity-100' : 'opacity-100',
+          )}
+          style={
+            last
+              ? { left: (last.x + last.w) * scale + 8, bottom: bottom * scale, height: 900 * scale }
+              : {
+                  left: (face.width / 2 - 300) * scale,
+                  bottom: bottom * scale,
+                  width: 600 * scale,
+                  height: 900 * scale,
+                }
+          }
+        >
+          <Plus size={14} />
+        </button>
+      )}
+      {label && !bare && (
+        <span
+          className={cn(
+            'pointer-events-none absolute left-1/2 top-full mt-1 -translate-x-1/2 whitespace-nowrap text-[11px] font-semibold tracking-[0.08em]',
+            face.face === 'other' ? 'text-danger' : 'text-ink-3',
+          )}
+        >
+          {face.label}
         </span>
       )}
     </div>
   )
 }
 
-/* ---------------- 站架 ---------------- */
-
-function SignShelf({ shelf, scale }: { shelf: ShelfDraft; scale: number }) {
-  const { edit, bare } = useElev()
-  // 站架类型是可改名的字典：名称含"候车亭"画顶棚，含"单立柱"画一根立柱（默认决定 16）
-  const shelter = shelf.typeName.includes('候车亭')
-  const single = shelf.typeName.includes('单立柱')
-  const w = shelfWidthMm(shelf) * scale
-  const selected = edit?.sel?.type === 'shelf' && edit.sel.id === shelf.id
-  const ghost = shelf.noPhysical
-  const post = (
-    <span
-      className={cn(
-        'w-[8px] rounded-t-[2px]',
-        ghost
-          ? 'border-x-[1.5px] border-dashed border-ink-4'
-          : 'bg-[linear-gradient(90deg,var(--ink-2),var(--ink-4)_45%,var(--ink-2))]',
-      )}
-      style={{ height: POST_MM * scale }}
-    />
-  )
+/** 面与面之间的折线：像一张纸折过去 */
+function FaceFold({ height }: { height: number }) {
   return (
-    <div className="group/shelf flex shrink-0 flex-col items-center" style={{ minWidth: w }} data-testid="sign-shelf">
-      {shelter && (
-        <div
-          className={cn(
-            'relative mb-2 rounded-[6px]',
-            ghost
-              ? 'border-[1.5px] border-dashed border-ink-4'
-              : 'bg-[linear-gradient(180deg,var(--plate),color-mix(in_oklab,var(--plate)_70%,black))] shadow-xs',
-          )}
-          style={{ width: w + 36, height: bare ? 6 : 16 }}
-        />
-      )}
-      <div className="flex items-end" style={{ gap: GAP_MM * scale }}>
-        {shelf.boards.map((b) => (
-          <SignBoard key={b.id} board={b} scale={scale} ghost={ghost} />
-        ))}
-        {edit && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation()
-              edit.onAddBoard(shelf.id)
-            }}
-            aria-label={`给${shelfLabel(shelf.no)}加站牌`}
-            title="加站牌"
-            className={cn(
-              'mb-5 flex items-center justify-center rounded-[10px] border-2 border-dashed border-hairline-2 text-ink-4 transition-opacity hover:border-accent hover:text-accent focus-visible:opacity-100',
-              shelf.boards.length ? 'w-8 opacity-0 group-hover/shelf:opacity-100' : 'opacity-100',
-            )}
-            style={{ height: 900 * scale, width: shelf.boards.length ? undefined : 600 * scale }}
-          >
-            <Plus size={14} />
-          </button>
-        )}
-      </div>
-      <div className={cn('flex w-full', single ? 'justify-center' : 'justify-between px-[12%]')}>
-        {post}
-        {!single && post}
-      </div>
-      <div
-        className="h-[4px] rounded-full bg-[linear-gradient(90deg,transparent,var(--ink-3)_12%,var(--ink-3)_88%,transparent)] opacity-50"
-        style={{ width: w + 70 }}
+    <svg width={FOLD_PX} height={height} className="shrink-0 overflow-visible" aria-hidden>
+      <path
+        d={`M${FOLD_PX / 2} ${height}V${height * 0.16}l-3 -6 6 -6 -3 -6V0`}
+        fill="none"
+        stroke="var(--hairline-2)"
+        strokeWidth={1.2}
+        strokeDasharray="3 4"
+        strokeLinecap="round"
       />
+    </svg>
+  )
+}
+
+function SignShelf({ shelf, model, scale }: { shelf: ShelfDraft; model: ShelfModel; scale: number }) {
+  const { edit, bare } = useElev()
+  const selected = edit?.sel?.type === 'shelf' && edit.sel.id === shelf.id
+  const labelled = model.faces.length > 1 || model.faces[0]?.face !== 'front'
+  const tallest = Math.max(...model.faces.map((f) => f.height)) * scale
+  return (
+    <div
+      className="group/shelf flex shrink-0 flex-col items-center"
+      data-testid="sign-shelf"
+      data-form={model.form}
+      onClick={edit ? () => edit.onSelect({ type: 'shelf', id: shelf.id }) : undefined}
+    >
+      <div className="flex items-end">
+        {model.faces.map((f, i) => (
+          <Fragment key={f.face}>
+            {i > 0 && <FaceFold height={tallest} />}
+            <ShelfFace shelf={shelf} model={model} face={f} scale={scale} label={labelled} />
+          </Fragment>
+        ))}
+      </div>
       {!bare && (
         <button
           type="button"
@@ -457,8 +511,10 @@ function SignShelf({ shelf, scale }: { shelf: ShelfDraft; scale: number }) {
             e.stopPropagation()
             edit?.onSelect({ type: 'shelf', id: shelf.id })
           }}
+          title={model.warnings.join('\n') || undefined}
           className={cn(
-            'mt-2.5 flex max-w-full items-center gap-1.5 truncate rounded-full px-3 py-1 text-[12.5px] transition-colors disabled:cursor-default',
+            'flex max-w-full items-center gap-1.5 truncate rounded-full px-3 py-1 text-[12.5px] transition-colors disabled:cursor-default',
+            labelled ? 'mt-7' : 'mt-2.5',
             selected
               ? 'bg-coral text-paper'
               : 'bg-surface text-ink-2 shadow-xs ring-1 ring-hairline enabled:hover:text-ink',
@@ -470,6 +526,9 @@ function SignShelf({ shelf, scale }: { shelf: ShelfDraft; scale: number }) {
             <span className={cn('rounded px-1 text-[10.5px]', selected ? 'bg-paper/20' : 'bg-sunken text-ink-3')}>
               无实物
             </span>
+          )}
+          {model.warnings.length > 0 && (
+            <TriangleAlert size={12} className={selected ? 'text-paper' : 'text-signal'} aria-label="有提示" />
           )}
         </button>
       )}
@@ -496,9 +555,13 @@ function useWidth<T extends HTMLElement>(fallback = 1000) {
 export interface ElevationProps {
   draft: Pick<SignSetDraft, 'shelves' | 'schedules'>
   pool: PoolItem[]
+  /** 站架类型列表；还没读到时画占位，避免结构跳动 */
+  types: ShelfTypeItem[] | undefined
   zoom?: Zoom
   /** 固定最高站牌的显示高度（缩略图） */
   height?: number
+  /** 整个站架（含结构）最多多高（px，缩略图放在固定高度的框里） */
+  maxHeight?: number
   edit?: ElevationEdit
   /** 缩略图：不画文字 */
   bare?: boolean
@@ -509,8 +572,10 @@ export interface ElevationProps {
 export function Elevation({
   draft,
   pool,
+  types,
   zoom = 'standard',
   height,
+  maxHeight,
   edit,
   bare = false,
   className,
@@ -519,22 +584,35 @@ export function Elevation({
   const [ref, width] = useWidth<HTMLDivElement>()
   const byKey = useMemo(() => new Map(pool.map((p) => [p.key, p])), [pool])
   const shelves = draft.shelves
+  const models = useMemo(() => (types ? shelves.map((sh) => shelfModelOf(sh, types)) : []), [shelves, types])
   const maxH = Math.max(...shelves.flatMap((sh) => sh.boards.map((b) => b.height)), 900)
-  const widest = Math.max(...shelves.map(shelfWidthMm), 1)
-  // 按档位决定最高站牌的显示高度；再保证最宽的站架一行放得下。多个站架按宽度自动折行
-  const scale = Math.max(0.02, Math.min((height ?? ZOOM_PX[zoom]) / maxH, (width - (bare ? 16 : 80)) / widest))
+  // 按档位决定最高站牌的显示高度；再保证最宽的站架（各面加折线）一行放得下。多个站架按宽度自动折行
+  const avail = width - (bare ? 16 : 80)
+  const fit = Math.min(
+    ...models.map((m) => (avail - FOLD_PX * (m.faces.length - 1)) / m.faces.reduce((n, f) => n + f.width, 0)),
+  )
+  const tall = maxHeight ? maxHeight / Math.max(1, ...models.flatMap((m) => m.faces.map((f) => f.height))) : Infinity
+  const scale = Math.max(0.02, Math.min((height ?? ZOOM_PX[zoom]) / maxH, fit, tall))
   const ctx: Ctx = { draft, itemOf: (s) => byKey.get(keyOf(s)), edit, bare }
   const body = (
     <div ref={ref} className={cn('w-full', className)}>
-      {shelves.length ? (
+      {shelves.length && !types ? (
+        <div
+          className="flex items-end justify-center px-6 py-8 text-[12px] text-ink-4"
+          style={{ minHeight: (height ?? ZOOM_PX[zoom]) * 1.4 }}
+          data-testid="elevation-loading"
+        >
+          正在读取站架类型…
+        </div>
+      ) : shelves.length ? (
         <div
           className={cn(
             'flex flex-wrap items-end justify-center',
             bare ? 'gap-x-4 gap-y-3 p-2' : 'gap-x-14 gap-y-12 px-6 pb-8 pt-8',
           )}
         >
-          {shelves.map((sh) => (
-            <SignShelf key={sh.id} shelf={sh} scale={scale} />
+          {shelves.map((sh, i) => (
+            <SignShelf key={sh.id} shelf={sh} model={models[i]} scale={scale} />
           ))}
         </div>
       ) : (

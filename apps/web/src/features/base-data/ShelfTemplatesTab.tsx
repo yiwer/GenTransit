@@ -1,11 +1,10 @@
 // 站架模板（需求 5.7，M3 计划 4.5）：按站架类型分组，每个模板一张小卡（立面缩略结构 + 名称、说明、站牌数）。
 // 编辑：左侧属性表与站牌结构表，右侧用立面组件实时预览；随时可删除，已生成的站架不受影响（BR-14）
 import {
-  BOARD_FACE_LABEL,
-  BOARD_FACES,
   SIZE_MAX_MM,
   SLOT_NO_MAX,
-  type BoardFace,
+  shelfFaces,
+  type ShelfSpec,
   type ShelfTemplate,
   type ShelfTemplateInputRaw,
   type TemplateBoard,
@@ -17,13 +16,15 @@ import { useState } from 'react'
 import { useDeleteFlow } from '@/components/gt/confirm'
 import { Elevation } from '@/components/gt/elevation'
 import { EmptyShelfArt } from '@/components/gt/lively'
-import { FieldError, GhostInput, GhostSelect, Prop } from '@/components/gt/prop'
+import { FieldError, GhostInput, Prop } from '@/components/gt/prop'
+import { ShelfSilhouette, specOfType } from '@/components/gt/shelf-art'
+import { FaceSelect, ShelfTypeSelect } from '@/components/gt/shelf-type-select'
 import { Segmented } from '@/components/gt/symbols'
 import { useToast } from '@/components/gt/toast'
 import { Button, IconButton } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
-import { useDict } from '@/features/common/data'
+import { useShelfTypes } from '@/features/common/data'
 import { templatesKey, useShelfTemplates } from '@/features/sign-sets/data'
 import { groupByType, templatePreview, templateSummary } from '@/features/sign-sets/TemplatePicker'
 import { del, isApiError, post, put, uploadFile } from '@/lib/api'
@@ -36,6 +37,7 @@ export function ShelfTemplatesTab() {
   const [editing, setEditing] = useState<ShelfTemplate | 'new' | null>(null)
   const refresh = () => qc.invalidateQueries({ queryKey: templatesKey })
   const list = q.data ?? []
+  const types = useShelfTypes().data
   return (
     <div className="h-full overflow-auto p-6">
       <div className="mb-4 flex items-center justify-between">
@@ -58,7 +60,8 @@ export function ShelfTemplatesTab() {
       <div className="flex flex-wrap gap-x-8 gap-y-6">
         {groupByType(list).map((g) => (
           <section key={g.type.id} aria-label={g.type.name} className="min-w-0">
-            <div className="mb-2 flex items-baseline gap-2">
+            <div className="mb-2 flex items-end gap-2">
+              <ShelfSilhouette spec={specOfType(types, g.type.id)} className="h-6 w-7" />
               <span className="eyebrow">{g.type.name}</span>
               <span className="text-[12px] tabular-nums text-ink-4">{g.items.length}</span>
             </div>
@@ -69,7 +72,7 @@ export function ShelfTemplatesTab() {
                   className="group flex w-[260px] flex-col overflow-hidden rounded-2xl bg-surface ring-1 ring-hairline transition-shadow hover:shadow-float"
                 >
                   <div className="flex h-[132px] items-end justify-center bg-[radial-gradient(ellipse_at_top,var(--surface)_0%,var(--surface-2)_60%,var(--sunken)_140%)]">
-                    <Elevation draft={templatePreview(t)} pool={[]} height={84} bare />
+                    <Elevation draft={templatePreview(t)} pool={[]} types={types} height={84} maxHeight={120} bare />
                   </div>
                   <div className="flex items-start gap-2 px-3.5 py-3">
                     <div className="min-w-0 flex-1">
@@ -124,8 +127,8 @@ export function ShelfTemplatesTab() {
 
 type Form = Omit<ShelfTemplateInputRaw, 'boards'> & { boards: TemplateBoard[] }
 
-const newBoard = (): TemplateBoard => ({
-  face: 'front',
+const newBoard = (spec?: ShelfSpec): TemplateBoard => ({
+  face: spec ? shelfFaces(spec)[0] : 'front',
   kind: 'whole',
   width: 1200,
   height: 1800,
@@ -172,7 +175,7 @@ function TemplateDialog({
   onClose: () => void
   onSaved: () => void
 }) {
-  const types = useDict('shelfType').data ?? []
+  const types = useShelfTypes().data ?? []
   const toast = useToast()
   const [v, setV] = useState<Form>(() =>
     template
@@ -184,7 +187,14 @@ function TemplateDialog({
           imageId: template.image?.id ?? null,
           boards: template.boards,
         }
-      : { name: '', typeId: types[0]?.id ?? '', desc: '', noPhysical: false, imageId: null, boards: [newBoard()] },
+      : {
+          name: '',
+          typeId: types[0]?.id ?? '',
+          desc: '',
+          noPhysical: false,
+          imageId: null,
+          boards: [newBoard(types[0] && specOfType(types, types[0].id))],
+        },
   )
   const [imageUrl, setImageUrl] = useState(template?.image?.url ?? null)
   const [open, setOpen] = useState<number | null>(null)
@@ -192,6 +202,7 @@ function TemplateDialog({
   const [busy, setBusy] = useState(false)
   const typeId = v.typeId || types[0]?.id || ''
   const type = types.find((t) => t.id === typeId)
+  const spec = specOfType(types, typeId)
   const setBoard = (i: number, patch: Partial<TemplateBoard>) =>
     setV((x) => ({ ...x, boards: x.boards.map((b, j) => (j === i ? { ...b, ...patch } : b)) }))
   const setSlot = (i: number, k: number, patch: Partial<TemplateSlot>) =>
@@ -243,13 +254,7 @@ function TemplateDialog({
             />
           </Prop>
           <Prop label="站架类型" required hint="同一站架类型内模板名称不能重复">
-            <GhostSelect value={typeId} onChange={(e) => setV({ ...v, typeId: e.target.value })}>
-              {types.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name}
-                </option>
-              ))}
-            </GhostSelect>
+            <ShelfTypeSelect value={typeId} types={types} onChange={(t) => setV({ ...v, typeId: t.id })} />
           </Prop>
           <Prop label="说明">
             <GhostInput value={v.desc ?? ''} maxLength={200} onChange={(e) => setV({ ...v, desc: e.target.value })} />
@@ -307,7 +312,7 @@ function TemplateDialog({
           <div className="mb-1.5 mt-5 flex items-center gap-2">
             <span className="eyebrow">站牌结构</span>
             <span className="text-[12px] text-ink-4">{v.boards.length} 块，编号在套用时自动分配</span>
-            <Button size="sm" className="ml-auto" onClick={() => setV({ ...v, boards: [...v.boards, newBoard()] })}>
+            <Button size="sm" className="ml-auto" onClick={() => setV({ ...v, boards: [...v.boards, newBoard(spec)] })}>
               <Plus size={13} /> 加站牌
             </Button>
           </div>
@@ -335,18 +340,13 @@ function TemplateDialog({
                   ) : (
                     <span className="text-center font-mono text-[11px] text-ink-4">{i + 1}</span>
                   )}
-                  <GhostSelect
-                    aria-label={`第 ${i + 1} 块站牌的面`}
+                  <FaceSelect
+                    label={`第 ${i + 1} 块站牌的面`}
+                    spec={spec}
                     value={b.face}
-                    onChange={(e) => setBoard(i, { face: e.target.value as BoardFace })}
+                    onChange={(face) => setBoard(i, { face })}
                     className="w-full text-[12.5px]"
-                  >
-                    {BOARD_FACES.map((f) => (
-                      <option key={f} value={f}>
-                        {BOARD_FACE_LABEL[f]}
-                      </option>
-                    ))}
-                  </GhostSelect>
+                  />
                   <Segmented
                     size="sm"
                     label={`第 ${i + 1} 块站牌的类型`}
@@ -462,6 +462,7 @@ function TemplateDialog({
                 boards: v.boards,
               })}
               pool={[]}
+              types={types}
               zoom="compact"
             />
           </div>

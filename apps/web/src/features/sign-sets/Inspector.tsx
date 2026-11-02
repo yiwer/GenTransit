@@ -1,7 +1,5 @@
 // 属性卡：选中站架、站牌或插片时在右上角浮出，编辑其字段（属性表版式，输入框平时像文字）
 import {
-  BOARD_FACE_LABEL,
-  BOARD_FACES,
   BOARD_NO_MAX,
   SHELF_NO_MAX,
   SIZE_MAX_MM,
@@ -27,15 +25,19 @@ import {
   updateBoard,
   updateShelf,
   updateSlot,
-  type BoardFace,
+  shelfFaceLabel,
+  shelfFaces,
 } from '@gentransit/shared'
-import { ArrowDownUp, ArrowLeft, ArrowRight, Layers, Plus, Trash2, X } from 'lucide-react'
+import { ArrowDownUp, ArrowLeft, ArrowRight, Layers, Plus, Trash2, TriangleAlert, X } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
+import { shelfModelOf } from '@/components/gt/elevation'
 import { FieldError, GhostInput, GhostSelect, Prop } from '@/components/gt/prop'
+import { specOfType } from '@/components/gt/shelf-art'
+import { FaceSelect, ShelfTypeSelect } from '@/components/gt/shelf-type-select'
 import { Segmented } from '@/components/gt/symbols'
 import { Button, IconButton } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
-import { useDict } from '@/features/common/data'
+import { useShelfTypes } from '@/features/common/data'
 import { useEditor } from './editor-api'
 
 /** 整数输入：本地保留文本，合法时才写进草稿 */
@@ -111,7 +113,7 @@ const range = (n: number) => Array.from({ length: n }, (_, i) => i + 1)
 
 export function Inspector({ onReapply }: { onReapply: (shelfId: string) => void }) {
   const ed = useEditor()
-  const types = useDict('shelfType').data ?? []
+  const types = useShelfTypes().data ?? []
   const d = ed.draft
   const sel = ed.sel
   if (!sel) return null
@@ -124,13 +126,15 @@ export function Inspector({ onReapply }: { onReapply: (shelfId: string) => void 
     const placed = placementsOnShelf(d, s.id)
     const up = (patch: Parameters<typeof updateShelf>[2], merge?: string) =>
       ed.run((x) => updateShelf(x, s.id, patch), merge && `${s.id}:${merge}`)
+    const spec = specOfType(types, s.typeId)
+    const warnings = shelfModelOf(s, types).warnings
     return (
       <Card
         title={shelfLabel(s.no)}
         sub={`${s.boards.length} 块站牌`}
         actions={
           <>
-            <Button size="sm" onClick={() => ed.run((x) => addBoard(x, s.id))}>
+            <Button size="sm" onClick={() => ed.run((x) => addBoard(x, s.id, shelfFaces(spec)[0]))}>
               <Plus size={13} /> 加站牌
             </Button>
             <Button size="sm" onClick={() => onReapply(s.id)}>
@@ -185,21 +189,28 @@ export function Inspector({ onReapply }: { onReapply: (shelfId: string) => void 
             ))}
           </GhostSelect>
         </Prop>
-        <Prop label="站架类型" required>
-          <GhostSelect
+        <Prop label="站架类型" required hint="结构与可用的面随类型；改类型后立面立即重排">
+          <ShelfTypeSelect
             value={s.typeId}
-            onChange={(e) =>
-              up({ typeId: e.target.value, typeName: types.find((t) => t.id === e.target.value)?.name ?? '' })
-            }
-          >
-            {!types.some((t) => t.id === s.typeId) && <option value={s.typeId}>{s.typeName}</option>}
-            {types.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.name}
-              </option>
-            ))}
-          </GhostSelect>
+            types={types}
+            fallbackName={s.typeName}
+            onChange={(t) => {
+              up({ typeId: t.id, typeName: t.name })
+              const own = shelfFaces(specOfType(types, t.id))
+              const stray = s.boards.filter((b) => !own.includes(b.face)).length
+              if (stray) ed.toast(`${stray} 块站牌的面不属于「${t.name}」，已归入其他面，请改它们的面`, 'warn')
+            }}
+          />
         </Prop>
+        {warnings.length > 0 && (
+          <div className="my-1.5 flex flex-col gap-1 rounded-lg bg-signal-soft/60 px-2.5 py-2 text-[12px] leading-snug text-signal-ink ring-1 ring-signal/25">
+            {warnings.map((w) => (
+              <span key={w} className="flex items-start gap-1.5">
+                <TriangleAlert size={12} className="mt-0.5 shrink-0" /> {w}
+              </span>
+            ))}
+          </div>
+        )}
         <Prop label="名称">
           <GhostInput
             value={s.name}
@@ -306,14 +317,16 @@ export function Inspector({ onReapply }: { onReapply: (shelfId: string) => void 
             ))}
           </GhostSelect>
         </Prop>
-        <Prop label="面" required>
-          <GhostSelect value={b.face} onChange={(e) => up({ face: e.target.value as BoardFace })}>
-            {BOARD_FACES.map((x) => (
-              <option key={x} value={x}>
-                {BOARD_FACE_LABEL[x]}
-              </option>
-            ))}
-          </GhostSelect>
+        <Prop
+          label="面"
+          required
+          hint={
+            shelfFaces(specOfType(types, f.shelf.typeId)).includes(b.face)
+              ? undefined
+              : `${shelfFaceLabel(specOfType(types, f.shelf.typeId).form, b.face)}不属于站架类型「${f.shelf.typeName}」，立面里归入其他面`
+          }
+        >
+          <FaceSelect spec={specOfType(types, f.shelf.typeId)} value={b.face} onChange={(face) => up({ face })} />
         </Prop>
         <Prop label="类型" required hint={b.kind === 'whole' ? '整版：线路直接排在牌上' : '分片：线路放进线路插片'}>
           <Segmented

@@ -8,15 +8,18 @@ import { EmptyShelfArt, OrbitLoader } from '@/components/gt/lively'
 import { DirBadge, Segmented, StatusChip } from '@/components/gt/symbols'
 import { Button } from '@/components/ui/button'
 import { Sheet } from '@/components/ui/sheet'
+import { useShelfTypes } from '@/features/common/data'
 import { useSignSet } from './data'
 
 /** 只读立面 + 计数；站点详情"站牌集"一节也用它 */
 export function SignSetGlance({ view, zoom = 'compact' }: { view: SignSetView; zoom?: Zoom }) {
   const pool = useMemo(() => poolOf(view, view.passages, view.routes), [view])
+  const types = useShelfTypes().data
   return (
     <Elevation
       draft={view}
       pool={pool}
+      types={types}
       zoom={zoom}
       empty={
         <div className="flex flex-col items-center gap-2 py-8 text-center text-[12.5px] text-ink-3">

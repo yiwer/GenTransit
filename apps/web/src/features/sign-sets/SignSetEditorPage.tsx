@@ -55,20 +55,23 @@ import {
   Trash2,
   Undo2,
 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useBlocker, useNavigate, useParams, useSearchParams } from 'react-router'
 import { Elevation, PassageLabel, ZOOM_LABEL, useStoredZoom, type Sel, type Zoom } from '@/components/gt/elevation'
 import { HistoryButton, snapshotsKey } from '@/components/gt/history'
 import { EmptyShelfArt, OrbitLoader, SealCheck } from '@/components/gt/lively'
+import { specOfType } from '@/components/gt/shelf-art'
 import { ConflictDialog, useSaveFlow } from '@/components/gt/save'
 import { DirBadge, Segmented, StatusChip } from '@/components/gt/symbols'
 import { useToast } from '@/components/gt/toast'
 import { Button, IconButton } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/dropdown-menu'
-import { useDict } from '@/features/common/data'
+import { useShelfTypes } from '@/features/common/data'
 import { put } from '@/lib/api'
 import { cn, useStored } from '@/lib/utils'
+import { shelfFacesOf } from '@/shelf-model'
+import { boardContents } from '@/shelf-model/board-content'
 import { CopyFromDialog } from './CopyFromDialog'
 import { draftOf, toInput, useDraftHistory, useSignSet } from './data'
 import { EditorCtx, INVALID_MOVE, makeEditor, type EditorApi } from './editor-api'
@@ -78,6 +81,10 @@ import { useQueue } from './queue'
 import { QueueTrack } from './QueueTrack'
 import { TemplatePicker } from './TemplatePicker'
 import { Tray } from './Tray'
+
+/** 3D 预览单独分包，点开才下载（M7 计划 5.3 节） */
+const Shelf3D = lazy(() => import('@/three/ShelfScene3D'))
+type StageMode = 'elevation' | '3d'
 
 /** 指针落在线路行或插片上时优先它们，便于在整版站牌内排序、放进插片 */
 const preferInner: CollisionDetection = (args) => {
@@ -94,10 +101,12 @@ const same = (a: SignSetDraft, b: SignSetDraft) => JSON.stringify(toInput(a, 0))
 export function SignSetEditorPage() {
   const { stopId } = useParams()
   const q = useSignSet(stopId, { fresh: true })
+  // 站架类型与站牌集并行读取，两者都到了再画，避免立面结构跳动（M7 计划 5.2 节）
+  const types = useShelfTypes()
   // 缓存里的旧内容不用：等进入后这一次读取完成再开始编辑
   // eslint-disable-next-line react-hooks/exhaustive-deps -- 每换一个站点重新计时
   const mountedAt = useMemo(() => Date.now(), [stopId])
-  if (q.isPending || (q.isFetching && q.dataUpdatedAt < mountedAt))
+  if (q.isPending || types.isPending || (q.isFetching && q.dataUpdatedAt < mountedAt))
     return (
       <div className="flex h-full items-center justify-center gap-2 text-ink-3">
         <OrbitLoader size={22} /> 正在读取站牌集…
@@ -136,13 +145,15 @@ function Editor({ initial }: { initial: SignSetView }) {
   const counts = countsOf(pool)
   const [sel, setSel] = useState<Sel | null>(null)
   const [zoom, setZoom] = useStoredZoom()
+  const [mode, setMode] = useStored<StageMode>('gt-elev-mode', 'elevation')
   const [trayOpen, setTrayOpen] = useStored('gt-tray-open', true)
   const [picker, setPicker] = useState<null | { mode: 'add' } | { mode: 'reapply'; shelfId: string }>(null)
   const [ask, setAsk] = useState<ConfirmReq | null>(null)
   const [warn, setWarn] = useState<string[] | null>(null)
   const [saving, setSaving] = useState(false)
   const [noteOpen, setNoteOpen] = useState(Boolean(initial.reminder))
-  const shelfTypes = useDict('shelfType').data ?? []
+  const typesQ = useShelfTypes()
+  const shelfTypes = useMemo(() => typesQ.data ?? [], [typesQ.data])
   const stopName = stopLabel(view.stop)
   const nav = useNavigate()
   const [search, setSearch] = useSearchParams()
@@ -158,6 +169,24 @@ function Editor({ initial }: { initial: SignSetView }) {
   const [finished, setFinished] = useState(false)
 
   const ed: EditorApi = makeEditor({ view, draft, pool, set: hist.set, toast, confirm: setAsk, sel, setSel })
+
+  /* ---------- 3D 预览的输入：与立面同一份草稿 ---------- */
+  const scene3d = useMemo(
+    () =>
+      draft.shelves.map((sh) => ({
+        id: sh.id,
+        spec: specOfType(shelfTypes, sh.typeId),
+        faces: shelfFacesOf(sh.boards),
+        ghost: sh.noPhysical,
+      })),
+    [draft.shelves, shelfTypes],
+  )
+  const contents3d = useMemo(
+    () => boardContents(draft, pool, (id) => shelfTypes.find((t) => t.id === id)?.form),
+    [draft, pool, shelfTypes],
+  )
+  const selectedBoard =
+    sel?.type === 'board' ? sel.id : sel?.type === 'slot' ? (findSlot(draft, sel.id)?.board.id ?? null) : null
 
   /* ---------- 撤销、重做、快捷键 ---------- */
   useEffect(() => {
@@ -496,15 +525,28 @@ function Editor({ initial }: { initial: SignSetView }) {
                     </MenuItem>
                   </MenuContent>
                 </Menu>
-                <Segmented<Zoom>
+                <Segmented<StageMode>
                   size="sm"
-                  label="立面比例"
-                  value={zoom}
-                  onChange={setZoom}
-                  options={(Object.keys(ZOOM_LABEL) as Zoom[]).map((z) => ({ value: z, label: ZOOM_LABEL[z] }))}
+                  label="立面或 3D"
+                  value={mode}
+                  onChange={setMode}
+                  options={[
+                    { value: 'elevation', label: '立面' },
+                    { value: '3d', label: '3D' },
+                  ]}
                 />
+                {mode === 'elevation' && (
+                  <Segmented<Zoom>
+                    size="sm"
+                    label="立面比例"
+                    value={zoom}
+                    onChange={setZoom}
+                    options={(Object.keys(ZOOM_LABEL) as Zoom[]).map((z) => ({ value: z, label: ZOOM_LABEL[z] }))}
+                  />
+                )}
                 <span className="text-[12px] text-ink-3">
-                  {draft.shelves.length} 个站架 · 点站架、站牌或插片编辑属性
+                  {draft.shelves.length} 个站架 ·{' '}
+                  {mode === '3d' ? '3D 只读，点站牌编辑属性' : '点站架、站牌或插片编辑属性'}
                 </span>
                 {invalidKeys.length > 0 && (
                   <Button
@@ -526,36 +568,71 @@ function Editor({ initial }: { initial: SignSetView }) {
                 value={draft.reminder}
                 onChange={(v) => ed.run((d) => ({ ...d, reminder: v }), 'reminder')}
               />
-              <Elevation
-                draft={draft}
-                pool={pool}
-                zoom={zoom}
-                empty={empty}
-                edit={{
-                  sel,
-                  onSelect: setSel,
-                  onRemove: ed.removeSchedule,
-                  onAddBoard: (shelfId) => {
-                    let id = ''
-                    if (
-                      ed.run((d) => {
-                        const r = addBoard(d, shelfId)
-                        id = r.boardId
-                        return r.draft
-                      })
-                    )
-                      setSel({ type: 'board', id })
-                  },
-                  onMove: (id, delta) => ed.run((d) => moveWithin(d, id, delta)),
-                  menu: (s, item) => <ScheduleMenu s={s} item={item} />,
-                  dragging: Boolean(active),
-                }}
-              />
+              {mode === '3d' ? (
+                <div
+                  className="absolute inset-x-0 bottom-0 top-[52px]"
+                  onClick={(e) => e.stopPropagation()}
+                  data-testid="stage-3d"
+                >
+                  {draft.shelves.length ? (
+                    <Suspense
+                      fallback={
+                        <div className="flex h-full items-center justify-center gap-2 text-ink-3">
+                          <OrbitLoader size={22} /> 正在载入 3D…
+                        </div>
+                      }
+                    >
+                      <Shelf3D
+                        shelves={scene3d}
+                        contents={contents3d}
+                        selectedId={selectedBoard}
+                        onPick={(id) => setSel({ type: 'board', id })}
+                        onExit={() => setMode('elevation')}
+                      />
+                    </Suspense>
+                  ) : (
+                    empty
+                  )}
+                </div>
+              ) : (
+                <Elevation
+                  draft={draft}
+                  pool={pool}
+                  types={shelfTypes}
+                  zoom={zoom}
+                  empty={empty}
+                  edit={{
+                    sel,
+                    onSelect: setSel,
+                    onRemove: ed.removeSchedule,
+                    onAddBoard: (shelfId, face) => {
+                      let id = ''
+                      if (
+                        ed.run((d) => {
+                          const r = addBoard(d, shelfId, face)
+                          id = r.boardId
+                          return r.draft
+                        })
+                      )
+                        setSel({ type: 'board', id })
+                    },
+                    onMove: (id, delta) => ed.run((d) => moveWithin(d, id, delta)),
+                    menu: (s, item) => <ScheduleMenu s={s} item={item} />,
+                    dragging: Boolean(active),
+                  }}
+                />
+              )}
             </div>
             <Inspector onReapply={(shelfId) => setPicker({ mode: 'reapply', shelfId })} />
           </div>
 
-          <Tray open={trayOpen} onToggle={() => setTrayOpen((o) => !o)} dragging={Boolean(active)} />
+          <Tray
+            open={trayOpen}
+            onToggle={() => setTrayOpen((o) => !o)}
+            dragging={Boolean(active)}
+            locked={mode === '3d'}
+            onUnlock={() => setMode('elevation')}
+          />
         </div>
         <DragOverlay dropAnimation={null}>
           {active && (
