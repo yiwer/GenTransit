@@ -147,7 +147,7 @@ export const V1_ENDPOINTS: V1Endpoint[] = [
     path: '/dict-items',
     tag: '参考数据',
     summary: '字典项',
-    description: `${LIST_NOTE}可按类别筛选。shelfType（站架类型）这一类已过时：M7 起站架类型是独立数据，这里仍返回它们的 ID 与名称以保持兼容，结构形式与参数请用 /shelf-types。`,
+    description: `${LIST_NOTE}可按类别筛选。shelfType（站架类型）这一类已过时：M7 起站架类型是独立数据，这里仍返回它们的 ID 与名称以保持兼容，结构形式与参数请用 /shelf-types；M7 起删除的站架类型在 /deleted 里记为 shelfType，不是 dictItem。`,
     query: v1DictQuery,
     response: v1DictItemPage,
   },

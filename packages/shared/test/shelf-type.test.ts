@@ -20,7 +20,8 @@ describe('站架类型参数', () => {
     for (const form of SHELF_FORMS) {
       const r = shelfSpec.safeParse({ form, params: SHELF_PARAM_DEFAULTS[form] })
       expect(r.success).toBe(true)
-      expect(SHELF_PARAM_DEFAULTS[form].mountBottom).toBe(800)
+      // 候车亭的灯箱下沿默认 400，顶边才低于 2.5 m 的顶棚下沿
+      expect(SHELF_PARAM_DEFAULTS[form].mountBottom).toBe(form === 'shelter' ? 400 : 800)
       expect(SHELF_PARAM_DEFAULTS[form].orientation).toBe('parallel')
     }
     expect(SHELF_PARAM_DEFAULTS.shelter).toMatchObject({ length: 6000, canopyBottom: 2500, posts: 3, backPanel: true })

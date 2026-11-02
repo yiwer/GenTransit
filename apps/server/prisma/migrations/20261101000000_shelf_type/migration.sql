@@ -59,7 +59,8 @@ src AS (
 )
 INSERT INTO "ShelfType" ("id", "name", "form", "params", "desc", "needsReview", "createdAt", "updatedAt")
 SELECT src."id", src."name", src.form::"ShelfForm",
-       jsonb_build_object('mountBottom', 800, 'orientation', 'parallel') ||
+       -- 候车亭的灯箱一般 2 m 高，下沿取 400 才低于 2.5 m 的顶棚下沿（与 shelterParams 的默认值相同）
+       jsonb_build_object('mountBottom', CASE src.form WHEN 'shelter' THEN 400 ELSE 800 END, 'orientation', 'parallel') ||
        CASE src.form
          WHEN 'singlePost' THEN jsonb_build_object(
            'postHeight', 3000, 'postDiameter', 89, 'mount', 'center', 'sides', src.sides)

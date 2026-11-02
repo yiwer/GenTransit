@@ -384,9 +384,9 @@ function faceView(
   parts: Part3D[],
   f: Frame | null,
   mounts: Mount[],
-  ctx: { mountBottom: number; tallest: number },
+  ctx: { mountBottom: number; tallest: number; fold: boolean },
 ): { view: Prim2D[]; mounts: Mount[]; width: number; height: number; shift: number } {
-  const fold = ctx.mountBottom > FOLD_MAX ? ctx.mountBottom - FOLD_MAX : 0
+  const fold = ctx.fold && ctx.mountBottom > FOLD_MAX ? ctx.mountBottom - FOLD_MAX : 0
   const lo = FOLD_MAX / 2
   const hi = ctx.mountBottom - FOLD_MAX / 2
   const fy = (y: number) => (!fold || y <= lo ? y : y >= hi ? y - fold : lo)
@@ -472,7 +472,8 @@ export function buildShelfModel(
   let built = structure(type, ctx)
   if (type.params.orientation === 'perpendicular') built = rotate(built, -Math.PI / 2)
   const { mountBottom } = type.params
-  const viewCtx = { mountBottom: opts.fold === false ? 0 : mountBottom, tallest }
+  // 不压缩时也按实际的牌面下沿算截断高度，否则柱、杆会截在牌组顶边以下
+  const viewCtx = { mountBottom, tallest, fold: opts.fold !== false }
   const foldBy = opts.fold === false ? 0 : Math.max(0, mountBottom - FOLD_MAX)
   const warnings = [...built.warnings]
 

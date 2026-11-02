@@ -24,7 +24,7 @@ import { useToast } from '@/components/gt/toast'
 import { Button, IconButton } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
-import { useShelfTypes } from '@/features/common/data'
+import { keys, useShelfTypes } from '@/features/common/data'
 import { templatesKey, useShelfTemplates } from '@/features/sign-sets/data'
 import { groupByType, templatePreview, templateSummary } from '@/features/sign-sets/TemplatePicker'
 import { del, isApiError, post, put, uploadFile } from '@/lib/api'
@@ -35,7 +35,11 @@ export function ShelfTemplatesTab() {
   const qc = useQueryClient()
   const { ask, dialogs } = useDeleteFlow()
   const [editing, setEditing] = useState<ShelfTemplate | 'new' | null>(null)
-  const refresh = () => qc.invalidateQueries({ queryKey: templatesKey })
+  const refresh = () => {
+    void qc.invalidateQueries({ queryKey: templatesKey })
+    // 站架类型页的引用数
+    void qc.invalidateQueries({ queryKey: keys.shelfTypes })
+  }
   const list = q.data ?? []
   const types = useShelfTypes().data
   return (

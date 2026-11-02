@@ -60,6 +60,8 @@ export const doublePostParams = z.object({
 })
 export const shelterParams = z.object({
   ...common,
+  // 灯箱一般 2 m 高：下沿取 400，顶边低于顶棚下沿 2.5 m
+  mountBottom: mm(0, 3000, 400),
   length: mm(1000, 30000, 6000),
   depth: mm(500, 5000, 1600),
   canopyBottom: mm(1800, 5000, 2500),
@@ -330,19 +332,16 @@ export const SHELF_PRESETS: ShelfPreset[] = [
   }),
   preset('double', '双立柱 · 单面', '两根柱夹一排牌', 'doublePost', { sides: 1 }),
   preset('double-2', '双立柱 · 双面', '背靠背双面', 'doublePost', { sides: 2 }),
-  // 灯箱一般 2 m 高：下沿取 400，顶边低于顶棚下沿 2.5 m
   preset('shelter-back', '候车亭 · 背板', '6 m、3 柱，站牌在背板灯箱上', 'shelter', {
     length: 6000,
     posts: 3,
     mount: 'back',
-    mountBottom: 400,
   }),
   preset('shelter-end', '候车亭 · 端板灯箱', '站牌在端板灯箱上，亭内亭外双面', 'shelter', {
     mount: 'end',
     sides: 2,
     length: 4000,
     posts: 2,
-    mountBottom: 400,
   }),
   preset('totem-3', '三面图腾柱', '三面导向柱', 'totem', { faces: 3 }),
   preset('totem-4', '四面图腾柱', '四面导向柱', 'totem', { faces: 4 }),

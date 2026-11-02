@@ -67,7 +67,7 @@ import { useToast } from '@/components/gt/toast'
 import { Button, IconButton } from '@/components/ui/button'
 import { Dialog } from '@/components/ui/dialog'
 import { Menu, MenuContent, MenuItem, MenuTrigger } from '@/components/ui/dropdown-menu'
-import { useShelfTypes } from '@/features/common/data'
+import { keys, useShelfTypes } from '@/features/common/data'
 import { put } from '@/lib/api'
 import { cn, useStored } from '@/lib/utils'
 import { shelfFacesOf } from '@/shelf-model'
@@ -110,6 +110,16 @@ export function SignSetEditorPage() {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-ink-3">
         <OrbitLoader size={22} /> 正在读取站牌集…
+      </div>
+    )
+  if (types.isError)
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 text-ink-3">
+        <EmptyShelfArt />
+        站架类型读取失败，立面画不出来。
+        <Button size="sm" onClick={() => void types.refetch()}>
+          重试
+        </Button>
       </div>
     )
   if (q.isError || !q.data)
@@ -250,6 +260,8 @@ function Editor({ initial }: { initial: SignSetView }) {
         qc.invalidateQueries({ queryKey: ['snapshots', 'recent'] }),
         qc.invalidateQueries({ queryKey: ['lines', 'arrangement'] }),
         qc.invalidateQueries({ queryKey: ['data-checks'] }),
+        // 站架类型页的引用数
+        qc.invalidateQueries({ queryKey: keys.shelfTypes }),
       ])
       queue?.markDone(view.stop.id)
       return true

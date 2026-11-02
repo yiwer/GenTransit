@@ -43,15 +43,15 @@ const SANS = '"Noto Sans SC", "Plus Jakarta Sans", sans-serif'
 const SERIF = '"Noto Serif SC", serif'
 const PLATE = '"Barlow Condensed", "Noto Sans SC", sans-serif'
 
-/** 画字前等页面已加载的字体（中文按用到的字下载分片） */
-export async function fontsReady(texts: string[]) {
-  if (typeof document === 'undefined' || !document.fonts?.load) return
+const FONTS = [`700 48px ${SERIF}`, `600 48px ${SANS}`, `700 48px ${PLATE}`]
+
+/** 画字前等页面已加载的字体（中文按用到的字下载分片）；返回是否新加载了字体（贴图要重画） */
+export async function fontsReady(texts: string[]): Promise<boolean> {
+  if (typeof document === 'undefined' || !document.fonts?.load) return false
   const all = texts.join('')
-  await Promise.all([
-    document.fonts.load(`700 48px ${SERIF}`, all),
-    document.fonts.load(`600 48px ${SANS}`, all),
-    document.fonts.load(`700 48px ${PLATE}`, all),
-  ]).catch(() => undefined)
+  if (FONTS.every((f) => document.fonts.check(f, all))) return false
+  await Promise.all(FONTS.map((f) => document.fonts.load(f, all))).catch(() => undefined)
+  return true
 }
 
 export const textsOf = (c: BoardContent) => [

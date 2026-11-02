@@ -73,11 +73,12 @@ describe('buildShelfModel', () => {
     expect(m.warnings).toContain(`牌组宽 ${W} mm，超出候车亭长度 3000 mm，按 ${W + 600} mm 画`)
     const canopy = rects(m.faces[0], 'canopy')[0] as { w: number }
     expect(canopy.w).toBe(W + 600 + 200)
-    const ok = buildShelfModel(spec('shelter', { mountBottom: 400 }), [{ face: 'front', boards: [b('a')] }])
+    const ok = buildShelfModel(spec('shelter'), [{ face: 'front', boards: [b('a')] }])
     expect(ok.warnings).toEqual([])
-    expect(buildShelfModel(spec('shelter'), [{ face: 'front', boards: [b('a', 1200, 2000)] }]).warnings[0]).toContain(
-      '高于顶棚下沿',
-    )
+    expect(
+      buildShelfModel(spec('shelter', { mountBottom: 800 }), [{ face: 'front', boards: [b('a', 1200, 2000)] }])
+        .warnings[0],
+    ).toContain('高于顶棚下沿')
   })
 
   it('多面柱：面数与面宽取各面牌组宽 + 2 × margin 的最大值', () => {
@@ -116,6 +117,9 @@ describe('buildShelfModel', () => {
     expect(real.faces[0].mounts[0].y).toBe(2200)
     // 杆高 6000 远高于牌组：截断画折断号
     expect(real.faces[0].view.filter((p) => p.kind === 'break')).toHaveLength(1)
+    // 截断处不低于牌组顶边（按实际的牌面下沿算）
+    const pole = rects(real.faces[0], 'pole')[0] as { y: number; h: number }
+    expect(pole.y + pole.h).toBeGreaterThanOrEqual(2200 + 1200)
     expect(buildShelfModel(spec('doublePost'), faces).faces[0].view.some((p) => p.kind === 'break')).toBe(false)
   })
 

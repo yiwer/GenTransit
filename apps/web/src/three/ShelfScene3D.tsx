@@ -429,7 +429,8 @@ function useTextures(
   const allText = useMemo(() => list.flatMap(textsOf), [list])
   useEffect(() => {
     let alive = true
-    void fontsReady(allText).then(() => alive && setFontsTick((n) => n + 1))
+    // 字都已加载时不动 fontsTick，免得每次改草稿都重画全部贴图
+    void fontsReady(allText).then((loaded) => alive && loaded && setFontsTick((n) => n + 1))
     return () => {
       alive = false
     }
